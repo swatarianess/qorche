@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-22
+
+### Added
+- **Parallel file hashing** via coroutine-batched `Dispatchers.IO` — ~2x faster warm snapshots
+- **Scoped snapshots** (`createScoped`) — hash only task-relevant paths, not the entire repo
+- **Orchestrator** — coordinates agent runs with snapshot lifecycle, WAL logging, and persistence
+- **SnapshotStore** — persists snapshots to `.qorche/snapshots/{id}.json`
+- **FileIndex persistence** — save/load to `.qorche/file-index.json` for warm cache on startup
+- **`SnapshotDiff.summary()`** — human-readable change reports ("+3 added, ~1 modified")
+- CLI `history` command — lists past snapshots with timestamps and file counts
+- CLI `diff <id1> <id2>` command — shows file changes between two snapshots
+- CLI `run` now takes before/after snapshots and displays diff report
+- Tests: SnapshotTest (9), WALTest (3), FileIndexTest (4), OrchestratorTest (5)
+
+### Changed
+- `SnapshotCreator.create()` is now a `suspend` function for parallel hashing
+- Large-scale benchmark task uses separate heap config (`-Xmx512m`)
+
+### Performance improvements (M1 vs M0)
+| Files  | M0 Warm Snap | M1 Warm Snap | Improvement |
+|--------|-------------|-------------|-------------|
+| 1,000  | 89ms        | 41ms        | 2.2x faster |
+| 5,000  | 387ms       | 197ms       | 2.0x faster |
+| 10,000 | 773ms       | 409ms       | 1.9x faster |
+| 20,000 | 1,579ms     | 789ms       | 2.0x faster |
+
+- End-to-end crossover (parallel+MVCC beats sequential) moved from ~1k to ~8k files
+- At 5k files with 5 steps: M0 was 0.6x (slower), M1 is **1.4x (faster)**
+- At 5k files with 12 steps: **3.2x speedup**
+- For repos beyond 10k files, scoped snapshots (`files` field) keep overhead low
+
 ## [0.1.0] - 2026-03-22
 
 ### Added
@@ -24,18 +55,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Large-scale benchmarks (50k, 100k files) as opt-in via `./gradlew :agent:largeBenchmark`
 - docs/IMPLEMENTATION.md for tracking milestone progress
 - docs/PHASE1_PLAN.md with full roadmap and architecture decisions
-
-### Benchmark findings (informing M1 optimisation priorities)
-- **Conflict detection is near-zero cost**: 0.1ms (1k files) to 2.7ms (20k files)
-- **Snapshot caching (FileIndex) provides ~3.5x speedup** across all file counts
-- **Parallel execution speedup scales with step count**: 2x (3 steps) → 7.9x (12 steps)
-- **Full-repo snapshots are the bottleneck**: at 5k+ files, walking and hashing the entire
-  repo twice per step dominates total time, cancelling out parallelism gains
-- **Crossover point ~1k files**: below this, parallel + MVCC is a clear win (4.3x at 100 files);
-  above this, naive full-repo snapshots eat the gain
-
-#### M1 optimisation priorities (derived from benchmarks)
-1. **Scoped snapshots** — use task `files` field to hash only relevant paths, not the entire repo
-2. **One snapshot per pipeline** — snapshot before all steps + after all steps, not per-step
-3. **Parallel file hashing** — Files.walk is single-threaded; use Dispatchers.IO for concurrent hashing
-4. **Incremental snapshots** — only re-walk directories that changed (inotify/WatchService in Phase 2+)

@@ -33,7 +33,7 @@ subprojects {
         testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
     }
 
-    tasks.withType<Test> {
+    tasks.named<Test>("test") {
         useJUnitPlatform {
             excludeTags("large-scale")
         }
@@ -45,8 +45,10 @@ subprojects {
         useJUnitPlatform {
             includeTags("large-scale")
         }
-        jvmArgs("-Xmx256m")
+        jvmArgs("-Xmx512m")
         group = "verification"
         description = "Run large-scale benchmarks (50k, 100k files)"
+        testClassesDirs = tasks.named<Test>("test").get().testClassesDirs
+        classpath = tasks.named<Test>("test").get().classpath
     }
 }
