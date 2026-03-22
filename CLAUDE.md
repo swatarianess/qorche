@@ -6,18 +6,18 @@
 
 ## What this project is
 
-Qorche is a deterministic, editor-agnostic orchestrator for concurrent filesystem
-mutations. It manages concurrent agent execution using MVCC-inspired filesystem
-concurrency control, task DAG scheduling, and a context bus for inter-agent awareness.
+Qorche is a deterministic, domain-agnostic orchestrator for concurrent filesystem
+mutations. It uses MVCC-inspired filesystem concurrency control, task DAG scheduling,
+and snapshot-based conflict detection to coordinate any concurrent workers that
+modify files.
 
-The orchestrator is the control plane — deterministic Kotlin code. The workers
-are LLM agents (Claude Code, Codex, Junie, etc.) or any process that modifies files,
-managed as external processes.
+The core (io.qorche.core) has ZERO references to AI, LLMs, agents, CI/CD, or any
+specific domain. It is a general-purpose concurrent filesystem coordination engine.
+Workers are anything that modifies files — LLM agents, CI steps, build tools,
+formatters, code generators — managed via the AgentRunner interface.
 
-The core (io.qorche.core) is domain-agnostic — it has ZERO references to AI, LLMs,
-or agents. It is a general-purpose concurrent filesystem coordination engine that
-could serve CI/CD, build systems, or infrastructure tooling. The AI agent adapters
-live only in io.qorche.agent.
+Domain-specific adapters live only in io.qorche.agent (e.g. ClaudeCodeAdapter).
+The architecture supports any worker type without changes to core.
 
 ## Project planning
 

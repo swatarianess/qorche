@@ -1,6 +1,6 @@
 # Qorche — Implementation Progress
 
-**Current milestone**: M1 (in progress)
+**Current milestone**: M2 (in progress)
 **Last updated**: 2026-03-22
 
 ---
@@ -32,7 +32,7 @@
 
 ---
 
-## M1: File snapshot system (in progress)
+## M1: File snapshot system [COMPLETE]
 
 ### Context from M0 benchmarks
 Benchmarks revealed that **full-repo snapshots are the primary bottleneck**. At 5k+ files,
@@ -70,17 +70,24 @@ detection itself is near-zero cost (0.1–2.7ms). This means M1 must prioritise:
 End-to-end crossover (parallel+MVCC vs sequential) moved from ~1k to ~8k files.
 At 5k files: M0 was 0.6x (slower), M1 is 1.4x (faster).
 
-### Remaining
+### Remaining (deferred to later)
 - [ ] Performance target: 10k files < 2s cold, < 500ms warm (currently 632ms cold, 409ms warm)
 
 ---
 
-## M2: Task graph + dependency model (not started)
+## M2: Task graph + dependency model (in progress)
 
-### Tasks
-- [ ] Parse YAML task definitions via kaml
-- [ ] Build DAG from task file, execute in topological order (sequential)
-- [ ] `qorche plan tasks.yaml` — dry-run showing execution order + parallel groups
-- [ ] WAL records for each task execution
-- [ ] Cycle detection with clear error messages
-- [ ] Execute 5-task graph against MockAgentRunner
+### Done
+- [x] `TaskYamlParser` — parse YAML task definitions via kaml into TaskProject/TaskGraph
+- [x] `Orchestrator.runGraph()` — execute TaskGraph sequentially in topological order
+- [x] Failed task propagation — dependents automatically skipped with reason
+- [x] `qorche plan <file>` — dry-run showing execution order + parallel groups
+- [x] `qorche run <file.yaml>` — execute task graph from YAML file
+- [x] WAL records for each task execution (start + complete/fail per task)
+- [x] Cycle detection with clear error messages (from M0 TaskGraph)
+- [x] `TaskYamlParserTest` — 10 tests: parsing, dependencies, cycles, errors, parallel groups
+- [x] `OrchestratorGraphTest` — 5 tests: 5-task graph, failure propagation, order, scoping, WAL history
+
+### Remaining
+- [ ] End-to-end CLI test: `qorche plan` + `qorche run` with YAML file
+- [ ] Error reporting polish (line numbers in YAML parse errors)

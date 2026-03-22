@@ -36,6 +36,24 @@ class Orchestrator(private val workDir: Path) {
         val afterSnapshot: Snapshot
     )
 
+    data class GraphResult(
+        val project: String,
+        val taskResults: Map<String, TaskOutcome>,
+        val totalTasks: Int,
+        val completedTasks: Int,
+        val failedTasks: Int,
+        val skippedTasks: Int
+    ) {
+        val success: Boolean get() = failedTasks == 0
+    }
+
+    data class TaskOutcome(
+        val taskId: String,
+        val status: TaskStatus,
+        val runResult: RunResult? = null,
+        val skipReason: String? = null
+    )
+
     suspend fun runTask(
         taskId: String,
         instruction: String,
@@ -115,6 +133,92 @@ class Orchestrator(private val workDir: Path) {
         fileIndex.saveTo(fileIndexPath)
 
         return RunResult(agentResult, diff, beforeSnapshot, afterSnapshot)
+    }
+
+    /**
+     * Execute a task graph sequentially in topological order.
+     * If a task fails, all tasks that depend on it are skipped.
+     */
+    suspend fun runGraph(
+        project: String,
+        graph: TaskGraph,
+        runner: AgentRunner,
+        onTaskStart: (TaskDefinition) -> Unit = {},
+        onTaskComplete: (String, TaskOutcome) -> Unit = { _, _ -> },
+        onOutput: (String) -> Unit = {}
+    ): GraphResult {
+        val outcomes = mutableMapOf<String, TaskOutcome>()
+        val failedTasks = mutableSetOf<String>()
+
+        for (taskId in graph.topologicalSort()) {
+            val node = graph[taskId] ?: continue
+            val def = node.definition
+
+            // Check if any dependency failed — if so, skip this task
+            val failedDep = def.dependsOn.firstOrNull { it in failedTasks }
+            if (failedDep != null) {
+                node.status = TaskStatus.SKIPPED
+                failedTasks.add(taskId) // propagate: tasks depending on skipped tasks also skip
+                val outcome = TaskOutcome(
+                    taskId = taskId,
+                    status = TaskStatus.SKIPPED,
+                    skipReason = "Dependency '$failedDep' failed"
+                )
+                outcomes[taskId] = outcome
+                onTaskComplete(taskId, outcome)
+                continue
+            }
+
+            onTaskStart(def)
+            node.status = TaskStatus.RUNNING
+
+            try {
+                val result = runTask(
+                    taskId = taskId,
+                    instruction = def.instruction,
+                    runner = runner,
+                    scopePaths = def.files,
+                    onOutput = onOutput
+                )
+
+                val success = result.agentResult.exitCode == 0
+                node.status = if (success) TaskStatus.COMPLETED else TaskStatus.FAILED
+                node.beforeSnapshotId = result.beforeSnapshot.id
+                node.afterSnapshotId = result.afterSnapshot.id
+                node.result = result.agentResult
+
+                if (!success) failedTasks.add(taskId)
+
+                val outcome = TaskOutcome(
+                    taskId = taskId,
+                    status = node.status,
+                    runResult = result
+                )
+                outcomes[taskId] = outcome
+                onTaskComplete(taskId, outcome)
+
+            } catch (e: Exception) {
+                node.status = TaskStatus.FAILED
+                failedTasks.add(taskId)
+                val outcome = TaskOutcome(
+                    taskId = taskId,
+                    status = TaskStatus.FAILED,
+                    skipReason = "Exception: ${e.message}"
+                )
+                outcomes[taskId] = outcome
+                onTaskComplete(taskId, outcome)
+            }
+        }
+
+        val allNodes = graph.allNodes()
+        return GraphResult(
+            project = project,
+            taskResults = outcomes,
+            totalTasks = allNodes.size,
+            completedTasks = allNodes.count { it.status == TaskStatus.COMPLETED },
+            failedTasks = allNodes.count { it.status == TaskStatus.FAILED },
+            skippedTasks = allNodes.count { it.status == TaskStatus.SKIPPED }
+        )
     }
 
     fun history(): List<Snapshot> = snapshotStore.list()

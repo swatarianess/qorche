@@ -8,10 +8,11 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.int
 import io.qorche.agent.ClaudeCodeAdapter
-import io.qorche.core.AgentEvent
+import io.qorche.core.CycleDetectedException
 import io.qorche.core.Orchestrator
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.onEach
+import io.qorche.core.TaskParseException
+import io.qorche.core.TaskStatus
+import io.qorche.core.TaskYamlParser
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
 
@@ -19,12 +20,12 @@ class QorcheCommand : CliktCommand(name = "qorche") {
     override fun run() = Unit
 
     init {
-        subcommands(RunCommand(), HistoryCommand(), DiffCommand(), VersionCommand())
+        subcommands(RunCommand(), PlanCommand(), HistoryCommand(), DiffCommand(), VersionCommand())
     }
 }
 
 class RunCommand : CliktCommand(name = "run") {
-    private val instruction by argument()
+    private val instructionOrFile by argument()
     private val verbose by option("--verbose", "-v").flag()
 
     override fun run() {
@@ -33,12 +34,22 @@ class RunCommand : CliktCommand(name = "run") {
         val runner = ClaudeCodeAdapter()
         val startTime = System.currentTimeMillis()
 
-        echo("Starting: $instruction")
+        val isYamlFile = instructionOrFile.endsWith(".yaml") || instructionOrFile.endsWith(".yml")
+
+        if (isYamlFile) {
+            runGraphFromFile(workDir, orchestrator, runner, startTime)
+        } else {
+            runSingleTask(orchestrator, runner, startTime)
+        }
+    }
+
+    private fun runSingleTask(orchestrator: Orchestrator, runner: ClaudeCodeAdapter, startTime: Long) {
+        echo("Starting: $instructionOrFile")
 
         runBlocking {
             val result = orchestrator.runTask(
                 taskId = "cli-run",
-                instruction = instruction,
+                instruction = instructionOrFile,
                 runner = runner
             ) { line ->
                 if (verbose) echo("[agent] $line")
@@ -58,6 +69,118 @@ class RunCommand : CliktCommand(name = "run") {
             }
             echo("Completed (exit ${result.agentResult.exitCode}) in ${elapsed}ms")
         }
+    }
+
+    private fun runGraphFromFile(
+        workDir: Path,
+        orchestrator: Orchestrator,
+        runner: ClaudeCodeAdapter,
+        startTime: Long
+    ) {
+        val filePath = workDir.resolve(instructionOrFile)
+        val (project, graph) = try {
+            TaskYamlParser.parseFileToGraph(filePath)
+        } catch (e: TaskParseException) {
+            echo("Error: ${e.message}", err = true)
+            return
+        } catch (e: CycleDetectedException) {
+            echo("Error: ${e.message}", err = true)
+            return
+        } catch (e: IllegalArgumentException) {
+            echo("Error: ${e.message}", err = true)
+            return
+        }
+
+        echo("Project: ${project.project}")
+        echo("Tasks: ${project.tasks.size}")
+        echo("")
+
+        runBlocking {
+            val result = orchestrator.runGraph(
+                project = project.project,
+                graph = graph,
+                runner = runner,
+                onTaskStart = { def ->
+                    echo("[${def.id}] Starting: ${def.instruction}")
+                },
+                onTaskComplete = { taskId, outcome ->
+                    when (outcome.status) {
+                        TaskStatus.COMPLETED -> {
+                            val diff = outcome.runResult?.diff
+                            if (diff != null && diff.totalChanges > 0) {
+                                echo("[${taskId}] Done: ${diff.summary()}")
+                            } else {
+                                echo("[${taskId}] Done (no changes)")
+                            }
+                        }
+                        TaskStatus.FAILED -> echo("[${taskId}] FAILED: ${outcome.skipReason ?: "non-zero exit"}")
+                        TaskStatus.SKIPPED -> echo("[${taskId}] SKIPPED: ${outcome.skipReason}")
+                        else -> {}
+                    }
+                },
+                onOutput = { line ->
+                    if (verbose) echo("[agent] $line")
+                }
+            )
+
+            val elapsed = System.currentTimeMillis() - startTime
+            echo("")
+            echo("Results: ${result.completedTasks} completed, ${result.failedTasks} failed, ${result.skippedTasks} skipped")
+            echo("Total time: ${elapsed}ms")
+        }
+    }
+}
+
+class PlanCommand : CliktCommand(name = "plan") {
+    private val file by argument()
+
+    override fun run() {
+        val workDir = Path.of(System.getProperty("user.dir"))
+        val filePath = workDir.resolve(file)
+
+        val (project, graph) = try {
+            TaskYamlParser.parseFileToGraph(filePath)
+        } catch (e: TaskParseException) {
+            echo("Error: ${e.message}", err = true)
+            return
+        } catch (e: CycleDetectedException) {
+            echo("Error: ${e.message}", err = true)
+            return
+        } catch (e: IllegalArgumentException) {
+            echo("Error: ${e.message}", err = true)
+            return
+        }
+
+        echo("Project: ${project.project}")
+        echo("Task graph: ${project.tasks.size} tasks")
+        echo("")
+
+        // Show execution order
+        echo("Execution order (sequential):")
+        val order = graph.topologicalSort()
+        for ((i, taskId) in order.withIndex()) {
+            val def = graph[taskId]?.definition ?: continue
+            val deps = if (def.dependsOn.isEmpty()) "no dependencies"
+                else "depends on: ${def.dependsOn.joinToString(", ")}"
+            val files = if (def.files.isEmpty()) ""
+                else " [${def.files.joinToString(", ")}]"
+            echo("  ${i + 1}. ${def.id} (${def.type.name.lowercase()}) — $deps$files")
+        }
+
+        // Show parallel groups
+        val groups = graph.parallelGroups()
+        if (groups.any { it.size > 1 }) {
+            echo("")
+            echo("Parallel groups (future M3 execution):")
+            for ((i, group) in groups.withIndex()) {
+                val label = if (group.size == 1) group[0]
+                    else group.joinToString(", ")
+                echo("  Group ${i + 1}: $label")
+            }
+        }
+
+        echo("")
+        echo("Use 'qorche run ${file}' to execute.")
     }
 }
 
