@@ -1,10 +1,15 @@
 package io.qorche.core
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.io.path.createParentDirectories
+import kotlin.io.path.exists
 import kotlin.io.path.fileSize
 import kotlin.io.path.getLastModifiedTime
+import kotlin.io.path.readText
 
 @Serializable
 data class FileIndexEntry(
@@ -17,6 +22,7 @@ data class FileIndexEntry(
 class FileIndex {
 
     private val entries = mutableMapOf<String, FileIndexEntry>()
+    private val json = Json { prettyPrint = false }
 
     fun getOrComputeHash(file: Path, relativePath: String): String {
         val size = file.fileSize()
@@ -42,4 +48,29 @@ class FileIndex {
     }
 
     fun exportEntries(): List<FileIndexEntry> = entries.values.toList()
+
+    /**
+     * Persist the file index to disk for warm cache on next startup.
+     */
+    fun saveTo(path: Path) {
+        path.createParentDirectories()
+        val data = json.encodeToString(exportEntries())
+        Files.writeString(path, data)
+    }
+
+    /**
+     * Load a previously persisted file index from disk.
+     */
+    fun loadFrom(path: Path): Boolean {
+        if (!path.exists()) return false
+        return try {
+            val saved = json.decodeFromString<List<FileIndexEntry>>(path.readText())
+            loadFrom(saved)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    val size: Int get() = entries.size
 }
