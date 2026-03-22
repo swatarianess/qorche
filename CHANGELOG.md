@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-22
+
+### Added
+- **YAML task definitions** — parse task files via kaml with dependencies, types, and scoped files
+- **`TaskYamlParser`** — validates task definitions, detects cycles, builds TaskGraph from YAML
+- **`Orchestrator.runGraph()`** — sequential execution in topological order with failure propagation
+- **`ShellRunner`** — secure shell command executor with command allowlisting, timeout, and env filtering
+- **`qorche plan <file>`** — dry-run showing execution order and parallel group opportunities
+- **`qorche run <file.yaml>`** — execute a full task graph from a YAML definition file
+- Failed task propagation — downstream dependents automatically skipped with clear reason
+- Tests: TaskYamlParserTest (10), OrchestratorGraphTest (5), ShellRunnerTest (8)
+
 ## [0.2.0] - 2026-03-22
 
 ### Added
