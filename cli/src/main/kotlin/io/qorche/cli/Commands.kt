@@ -246,6 +246,8 @@ class DiffCommand : CliktCommand(name = "diff") {
 
 class VersionCommand : CliktCommand(name = "version") {
     override fun run() {
-        echo("qorche 0.2.0-SNAPSHOT")
+        val version = javaClass.getResourceAsStream("/io/qorche/cli/version.txt")
+            ?.bufferedReader()?.readText()?.trim() ?: "dev"
+        echo("qorche $version")
     }
 }

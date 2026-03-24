@@ -14,6 +14,24 @@ dependencies {
     implementation("org.xerial:sqlite-jdbc:3.49.1.0")
 }
 
+tasks.register("generateVersionFile") {
+    val outputDir = layout.buildDirectory.dir("generated/version")
+    outputs.dir(outputDir)
+    doLast {
+        val dir = outputDir.get().asFile.resolve("io/qorche/cli")
+        dir.mkdirs()
+        dir.resolve("version.txt").writeText(project.version.toString())
+    }
+}
+
+sourceSets.main {
+    resources.srcDir(layout.buildDirectory.dir("generated/version"))
+}
+
+tasks.named("processResources") {
+    dependsOn("generateVersionFile")
+}
+
 graalvmNative {
     binaries {
         named("main") {
