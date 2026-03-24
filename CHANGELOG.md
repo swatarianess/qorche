@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-24
+
+### Added
+- **`Orchestrator.runGraphParallel()`** — concurrent execution within parallel groups via coroutines
+- **MVCC conflict detection** — write-write conflicts detected after each parallel group completes
+- **Scope audit** — detects undeclared writes outside task file scopes with group-level attribution
+- **`WALEntry.ConflictDetected`** — WAL entry for conflict events with file list and base snapshot
+- **`WALEntry.ScopeViolation`** — WAL entry for out-of-scope writes with suspect task list
+- **`ConflictDetector.detectGroupConflicts()`** — pairwise conflict detection across parallel groups
+- **`ConflictDetector.detectScopeViolations()`** — group-level audit for undeclared file modifications
+- **Realistic file size benchmarks** — validates mtime cache with real file size distributions
+- **DAG propagation benchmarks** — proves failure skip logic is sub-millisecond at 500+ tasks
+- **Parallel execution benchmarks** — 10.7x speedup at 12 independent tasks, diamond DAG benchmarks
+- Real-process integration tests with concurrent disk writes
+- Tests: ParallelExecutionTest (12), new benchmark tests (3)
+
+### Fixed
+- **FileIndex concurrency bug** — `HashMap` → `ConcurrentHashMap` to prevent corruption under parallel hashing
+
+### Changed
+- CLI `run` command now uses `runGraphParallel()` for YAML task files
+- `GraphResult` includes `conflicts` and `scopeViolations` fields
+- Removed inline comments from source, replaced with KDoc where needed
+
 ## [0.3.0] - 2026-03-22
 
 ### Added
