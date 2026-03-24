@@ -51,7 +51,6 @@ class ShellRunner(
 
         val executable = tokens[0]
 
-        // Security: validate against allowlist
         if (!isAllowed(executable)) {
             val msg = "Command '${executable}' is not in the allowlist. " +
                 "Permitted: ${allowedCommands.sorted().joinToString(", ")}"
@@ -60,7 +59,6 @@ class ShellRunner(
             return@flow
         }
 
-        // Validate working directory
         if (!workingDirectory.exists() || !workingDirectory.isDirectory()) {
             emit(AgentEvent.Error("Working directory does not exist: $workingDirectory"))
             emit(AgentEvent.Completed(exitCode = 2))
@@ -71,7 +69,6 @@ class ShellRunner(
             .directory(workingDirectory.toFile())
             .redirectErrorStream(true)
 
-        // Apply environment filter
         val filteredEnv = envFilter(processBuilder.environment().toMap())
         processBuilder.environment().clear()
         processBuilder.environment().putAll(filteredEnv)
@@ -112,7 +109,6 @@ class ShellRunner(
     }.flowOn(Dispatchers.IO)
 
     private fun isAllowed(executable: String): Boolean {
-        // Match against the base name (e.g. "gradlew" matches "./gradlew")
         val baseName = executable
             .replace("\\", "/")
             .substringAfterLast("/")

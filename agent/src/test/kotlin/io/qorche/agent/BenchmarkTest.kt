@@ -1,12 +1,22 @@
 package io.qorche.agent
 
 import io.qorche.core.AgentEvent
+import io.qorche.core.AgentRunner
 import io.qorche.core.ConflictDetector
 import io.qorche.core.FileIndex
+import io.qorche.core.Orchestrator
 import io.qorche.core.SnapshotCreator
+import io.qorche.core.TaskDefinition
+import io.qorche.core.TaskGraph
+import io.qorche.core.TaskType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Tag
@@ -56,6 +66,33 @@ class BenchmarkTest {
         for (i in 1..fileCount) {
             val dir = dirs[i % dirs.size]
             root.resolve("$dir/file_$i.txt").writeText("content of file $i\n".repeat(10))
+        }
+    }
+
+    /**
+     * Create a test repo with realistic file sizes mimicking a real codebase.
+     * Distribution: 40% small (100-500B), 30% medium (2-10KB), 20% large (20-80KB), 10% xlarge (100-300KB)
+     */
+    private fun createRealisticTestRepo(root: Path, fileCount: Int) {
+        val dirs = listOf("src", "test", "docs", "lib", "config", "assets")
+        for (dir in dirs) {
+            root.resolve(dir).createDirectories()
+        }
+        val rng = java.util.Random(42) // deterministic for reproducibility
+        for (i in 1..fileCount) {
+            val dir = dirs[i % dirs.size]
+            val bucket = rng.nextInt(100)
+            val size = when {
+                bucket < 40 -> 100 + rng.nextInt(400)       // small: 100-500B
+                bucket < 70 -> 2_000 + rng.nextInt(8_000)   // medium: 2-10KB
+                bucket < 90 -> 20_000 + rng.nextInt(60_000) // large: 20-80KB
+                else -> 100_000 + rng.nextInt(200_000)      // xlarge: 100-300KB
+            }
+            val content = buildString {
+                val line = "// line content for file $i with some realistic code padding\n"
+                while (length < size) append(line)
+            }
+            root.resolve("$dir/file_$i.kt").writeText(content)
         }
     }
 
@@ -325,7 +362,169 @@ class BenchmarkTest {
     }
 
     // ─────────────────────────────────────────────────────────────
-    //  5. LARGE-SCALE (opt-in) — 50k and 100k files
+    //  5. REALISTIC FILE SIZES — Does SHA-256 throughput matter?
+    // ─────────────────────────────────────────────────────────────
+
+    @Test
+    fun `realistic file sizes vs uniform small files`() = runBlocking {
+        println()
+        println("═══════════════════════════════════════════════════════════════════════════════════════════")
+        println("  REALISTIC FILE SIZES — comparing uniform 150B files vs real codebase distribution")
+        println("  Distribution: 40% small (100-500B), 30% medium (2-10KB), 20% large (20-80KB), 10% xlarge (100-300KB)")
+        println("═══════════════════════════════════════════════════════════════════════════════════════════")
+        println("  %-8s │ %12s │ %12s │ %12s │ %12s │ %10s │ %10s".format(
+            "Files", "Uniform Cold", "Uniform Warm", "Real Cold", "Real Warm", "Ratio Cold", "Ratio Warm"))
+        println("  ─────────┼──────────────┼──────────────┼──────────────┼──────────────┼────────────┼────────────")
+
+        for (fileCount in listOf(500, 1_000, 5_000)) {
+            val uniformRoot = Files.createTempDirectory("qorche-bench-uniform-$fileCount")
+            val realisticRoot = Files.createTempDirectory("qorche-bench-realistic-$fileCount")
+            try {
+                createTestRepo(uniformRoot, fileCount)
+                createRealisticTestRepo(realisticRoot, fileCount)
+
+                val uniformIndex = FileIndex()
+                val realisticIndex = FileIndex()
+
+                // Uniform — cold
+                val uColdStart = System.currentTimeMillis()
+                SnapshotCreator.create(uniformRoot, "cold", fileIndex = uniformIndex)
+                val uColdMs = System.currentTimeMillis() - uColdStart
+
+                // Uniform — warm
+                val uWarmStart = System.currentTimeMillis()
+                SnapshotCreator.create(uniformRoot, "warm", fileIndex = uniformIndex)
+                val uWarmMs = System.currentTimeMillis() - uWarmStart
+
+                // Realistic — cold
+                val rColdStart = System.currentTimeMillis()
+                SnapshotCreator.create(realisticRoot, "cold", fileIndex = realisticIndex)
+                val rColdMs = System.currentTimeMillis() - rColdStart
+
+                // Realistic — warm
+                val rWarmStart = System.currentTimeMillis()
+                SnapshotCreator.create(realisticRoot, "warm", fileIndex = realisticIndex)
+                val rWarmMs = System.currentTimeMillis() - rWarmStart
+
+                val ratioCold = if (uColdMs > 0) "%.1fx".format(rColdMs.toDouble() / uColdMs) else "N/A"
+                val ratioWarm = if (uWarmMs > 0) "%.1fx".format(rWarmMs.toDouble() / uWarmMs) else "N/A"
+
+                println("  %-8s │ %10dms │ %10dms │ %10dms │ %10dms │ %10s │ %10s".format(
+                    "%,d".format(fileCount), uColdMs, uWarmMs, rColdMs, rWarmMs, ratioCold, ratioWarm
+                ))
+            } finally {
+                uniformRoot.toFile().deleteRecursively()
+                realisticRoot.toFile().deleteRecursively()
+            }
+        }
+        println()
+        println("  Ratio = realistic / uniform (>1x means realistic files are slower to hash)")
+        println("  Cold  = first snapshot (no cache). Warm = second snapshot (mtime cache hit)")
+        println()
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  6. DAG PROPAGATION — Is failure skip logic fast at scale?
+    // ─────────────────────────────────────────────────────────────
+
+    @Test
+    fun `dag propagation overhead at scale`() = runBlocking {
+        println()
+        println("═══════════════════════════════════════════════════════════════════════════════════════════")
+        println("  DAG PROPAGATION — failure skip propagation time for deep/wide DAGs")
+        println("  First task fails, all dependents skipped. Measures pure graph overhead.")
+        println("═══════════════════════════════════════════════════════════════════════════════════════════")
+        println("  %-12s │ %10s │ %10s │ %12s │ %8s".format(
+            "DAG shape", "Tasks", "Skipped", "Time", "Per task"))
+        println("  ─────────────┼────────────┼────────────┼──────────────┼──────────")
+
+        // Deep chain: task-1 → task-2 → ... → task-N
+        for (depth in listOf(10, 50, 100, 500)) {
+            val root = Files.createTempDirectory("qorche-dag-deep-$depth")
+            try {
+                root.resolve("src").createDirectories()
+                root.resolve("src/main.kt").writeText("fun main() {}")
+
+                val defs = (1..depth).map { i ->
+                    TaskDefinition(
+                        id = "task-$i",
+                        instruction = "task-$i",
+                        dependsOn = if (i == 1) emptyList() else listOf("task-${i - 1}"),
+                        files = listOf("output/task-$i.txt")
+                    )
+                }
+                val graph = TaskGraph(defs)
+                val orchestrator = Orchestrator(root)
+                // First task fails, rest should be skipped
+                val runner = object : AgentRunner {
+                    override fun run(instruction: String, workingDirectory: Path,
+                                     onOutput: (String) -> Unit): Flow<AgentEvent> = flow {
+                        emit(AgentEvent.Completed(exitCode = 1)) // fail immediately
+                    }.flowOn(Dispatchers.IO)
+                }
+
+                val start = System.currentTimeMillis()
+                val result = orchestrator.runGraphParallel("bench", graph, runner)
+                val elapsed = System.currentTimeMillis() - start
+
+                val perTask = if (depth > 0) "%.2fms".format(elapsed.toDouble() / depth) else "N/A"
+
+                println("  %-12s │ %10d │ %10d │ %9dms │ %8s".format(
+                    "chain($depth)", depth, result.skippedTasks, elapsed, perTask
+                ))
+            } finally {
+                root.toFile().deleteRecursively()
+            }
+        }
+
+        // Wide fan-out: root → [N leaves]
+        for (width in listOf(10, 50, 100, 500)) {
+            val root = Files.createTempDirectory("qorche-dag-wide-$width")
+            try {
+                root.resolve("src").createDirectories()
+                root.resolve("src/main.kt").writeText("fun main() {}")
+
+                val defs = mutableListOf(
+                    TaskDefinition(id = "root", instruction = "root", files = listOf("output/root.txt"))
+                )
+                for (i in 1..width) {
+                    defs.add(TaskDefinition(
+                        id = "leaf-$i", instruction = "leaf-$i",
+                        dependsOn = listOf("root"),
+                        files = listOf("output/leaf-$i.txt")
+                    ))
+                }
+                val graph = TaskGraph(defs)
+                val orchestrator = Orchestrator(root)
+                val runner = object : AgentRunner {
+                    override fun run(instruction: String, workingDirectory: Path,
+                                     onOutput: (String) -> Unit): Flow<AgentEvent> = flow {
+                        emit(AgentEvent.Completed(exitCode = 1))
+                    }.flowOn(Dispatchers.IO)
+                }
+
+                val start = System.currentTimeMillis()
+                val result = orchestrator.runGraphParallel("bench", graph, runner)
+                val elapsed = System.currentTimeMillis() - start
+
+                val totalTasks = width + 1
+                val perTask = "%.2fms".format(elapsed.toDouble() / totalTasks)
+
+                println("  %-12s │ %10d │ %10d │ %9dms │ %8s".format(
+                    "fan($width)", totalTasks, result.skippedTasks, elapsed, perTask
+                ))
+            } finally {
+                root.toFile().deleteRecursively()
+            }
+        }
+        println()
+        println("  Time = wall-clock for entire graph execution (first task fails, rest skip)")
+        println("  Per task = time / total tasks (pure graph traversal overhead per node)")
+        println()
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  7. LARGE-SCALE (opt-in) — 50k and 100k files
     // ─────────────────────────────────────────────────────────────
 
     @Test
@@ -370,6 +569,176 @@ class BenchmarkTest {
                 root.toFile().deleteRecursively()
             }
         }
+        println()
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  7. PARALLEL EXECUTION (M3) — Sequential vs Parallel via Orchestrator
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * A mock runner that writes to specific files based on the instruction,
+     * simulating heterogeneous workers touching different parts of the repo.
+     */
+    private class PerTaskMockRunner(
+        private val delayMs: Long = STEP_DELAY_MS
+    ) : AgentRunner {
+        override fun run(
+            instruction: String,
+            workingDirectory: Path,
+            onOutput: (String) -> Unit
+        ): Flow<AgentEvent> = flow {
+            emit(AgentEvent.Output("Starting: $instruction"))
+            delay(delayMs)
+
+            // Each task writes to its own unique file
+            val file = workingDirectory.resolve("output/$instruction.txt")
+            Files.createDirectories(file.parent)
+            Files.writeString(file, "Result of $instruction\n")
+            emit(AgentEvent.FileModified("output/$instruction.txt"))
+
+            emit(AgentEvent.Completed(exitCode = 0))
+        }.flowOn(Dispatchers.IO)
+    }
+
+    private fun buildParallelGraph(taskCount: Int): Pair<List<TaskDefinition>, TaskGraph> {
+        // All tasks independent — maximum parallelism
+        val defs = (1..taskCount).map { i ->
+            TaskDefinition(
+                id = "task-$i",
+                instruction = "task-$i",
+                type = TaskType.IMPLEMENT,
+                files = listOf("output/task-$i.txt")
+            )
+        }
+        return defs to TaskGraph(defs)
+    }
+
+    private fun buildDiamondGraph(parallelWidth: Int): Pair<List<TaskDefinition>, TaskGraph> {
+        // explore → [parallel-1..N] → integrate
+        val defs = mutableListOf(
+            TaskDefinition(id = "explore", instruction = "explore", type = TaskType.EXPLORE,
+                files = listOf("output/explore.txt"))
+        )
+        for (i in 1..parallelWidth) {
+            defs.add(TaskDefinition(
+                id = "parallel-$i", instruction = "parallel-$i",
+                dependsOn = listOf("explore"),
+                files = listOf("output/parallel-$i.txt")
+            ))
+        }
+        defs.add(TaskDefinition(
+            id = "integrate", instruction = "integrate",
+            dependsOn = (1..parallelWidth).map { "parallel-$it" },
+            files = listOf("output/integrate.txt")
+        ))
+        return defs to TaskGraph(defs)
+    }
+
+    @Test
+    fun `parallel vs sequential orchestrator execution`() = runBlocking {
+        println()
+        println("═══════════════════════════════════════════════════════════════════════════════════════════")
+        println("  PARALLEL EXECUTION (M3) — runGraph() vs runGraphParallel() via Orchestrator")
+        println("  Each task = ${STEP_DELAY_MS}ms, all tasks independent (max parallelism)")
+        println("═══════════════════════════════════════════════════════════════════════════════════════════")
+        println("  %-8s │ %10s │ %10s │ %10s │ %8s │ %8s".format(
+            "Tasks", "Sequential", "Parallel", "Time saved", "Speedup", "Max ∥"))
+        println("  ─────────┼────────────┼────────────┼────────────┼──────────┼──────────")
+
+        for (taskCount in listOf(2, 4, 6, 8, 12)) {
+            val seqRoot = Files.createTempDirectory("qorche-bench-seq-$taskCount")
+            val parRoot = Files.createTempDirectory("qorche-bench-par-$taskCount")
+            try {
+                createTestRepo(seqRoot, 100)
+                createTestRepo(parRoot, 100)
+
+                val (seqDefs, seqGraph) = buildParallelGraph(taskCount)
+                val (_, parGraph) = buildParallelGraph(taskCount)
+
+                // Sequential
+                val seqOrch = Orchestrator(seqRoot)
+                val seqRunner = PerTaskMockRunner()
+                val seqStart = System.currentTimeMillis()
+                seqOrch.runGraph("bench", seqGraph, seqRunner)
+                val seqMs = System.currentTimeMillis() - seqStart
+
+                // Parallel
+                val parOrch = Orchestrator(parRoot)
+                val parRunner = PerTaskMockRunner()
+                val parStart = System.currentTimeMillis()
+                parOrch.runGraphParallel("bench", parGraph, parRunner)
+                val parMs = System.currentTimeMillis() - parStart
+
+                val saved = seqMs - parMs
+                val speedup = if (parMs > 0) "%.1fx".format(seqMs.toDouble() / parMs) else "∞"
+
+                println("  %-8d │ %8dms │ %8dms │ %7dms │ %8s │ %8d".format(
+                    taskCount, seqMs, parMs, saved, speedup, taskCount
+                ))
+            } finally {
+                seqRoot.toFile().deleteRecursively()
+                parRoot.toFile().deleteRecursively()
+            }
+        }
+        println()
+        println("  Sequential = runGraph() (topological order, one at a time)")
+        println("  Parallel   = runGraphParallel() (concurrent within groups + MVCC)")
+        println("  Max ∥      = maximum tasks running concurrently")
+        println()
+    }
+
+    @Test
+    fun `diamond DAG parallel benchmark`() = runBlocking {
+        println()
+        println("═══════════════════════════════════════════════════════════════════════════════════════════")
+        println("  DIAMOND DAG — explore → [N parallel] → integrate (${STEP_DELAY_MS}ms/task)")
+        println("═══════════════════════════════════════════════════════════════════════════════════════════")
+        println("  %-12s │ %10s │ %10s │ %10s │ %8s │ %18s".format(
+            "Par Width", "Sequential", "Parallel", "Time saved", "Speedup", "Expected seq ms"))
+        println("  ─────────────┼────────────┼────────────┼────────────┼──────────┼────────────────────")
+
+        for (width in listOf(2, 4, 6, 8)) {
+            val seqRoot = Files.createTempDirectory("qorche-bench-diamond-seq-$width")
+            val parRoot = Files.createTempDirectory("qorche-bench-diamond-par-$width")
+            try {
+                createTestRepo(seqRoot, 100)
+                createTestRepo(parRoot, 100)
+
+                val (_, seqGraph) = buildDiamondGraph(width)
+                val (_, parGraph) = buildDiamondGraph(width)
+
+                val totalTasks = width + 2  // explore + N parallel + integrate
+                val expectedSeqMs = totalTasks * STEP_DELAY_MS
+
+                // Sequential
+                val seqOrch = Orchestrator(seqRoot)
+                val seqStart = System.currentTimeMillis()
+                seqOrch.runGraph("bench", seqGraph, PerTaskMockRunner())
+                val seqMs = System.currentTimeMillis() - seqStart
+
+                // Parallel
+                val parOrch = Orchestrator(parRoot)
+                val parStart = System.currentTimeMillis()
+                parOrch.runGraphParallel("bench", parGraph, PerTaskMockRunner())
+                val parMs = System.currentTimeMillis() - parStart
+
+                val saved = seqMs - parMs
+                val speedup = if (parMs > 0) "%.1fx".format(seqMs.toDouble() / parMs) else "∞"
+
+                println("  %-12d │ %8dms │ %8dms │ %7dms │ %8s │ %14dms".format(
+                    width, seqMs, parMs, saved, speedup, expectedSeqMs
+                ))
+            } finally {
+                seqRoot.toFile().deleteRecursively()
+                parRoot.toFile().deleteRecursively()
+            }
+        }
+        println()
+        println("  Par Width     = number of tasks in the parallel middle layer")
+        println("  Sequential    = all tasks one-by-one (explore, par-1, par-2, ..., integrate)")
+        println("  Parallel      = explore → [all par in parallel] → integrate")
+        println("  Expected seq  = total tasks × ${STEP_DELAY_MS}ms (theoretical minimum)")
         println()
     }
 

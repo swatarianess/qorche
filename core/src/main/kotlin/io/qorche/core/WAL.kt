@@ -44,6 +44,25 @@ sealed class WALEntry {
         override val taskId: String,
         val error: String
     ) : WALEntry()
+
+    @Serializable
+    @SerialName("scope_violation")
+    data class ScopeViolation(
+        override val timestamp: Instant = Clock.System.now(),
+        override val taskId: String,
+        val undeclaredFiles: List<String>,
+        val suspectTaskIds: List<String>
+    ) : WALEntry()
+
+    @Serializable
+    @SerialName("conflict_detected")
+    data class ConflictDetected(
+        override val timestamp: Instant = Clock.System.now(),
+        override val taskId: String,
+        val conflictingTaskId: String,
+        val conflictingFiles: List<String>,
+        val baseSnapshotId: String
+    ) : WALEntry()
 }
 
 class WALWriter(private val walFile: Path) {

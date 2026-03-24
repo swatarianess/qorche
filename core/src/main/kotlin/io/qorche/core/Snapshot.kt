@@ -140,7 +140,6 @@ object SnapshotCreator {
         files: List<Path>,
         fileIndex: FileIndex?
     ): Map<String, String> = coroutineScope {
-        // Batch files into chunks for parallel hashing — avoid spawning a coroutine per file
         val batchSize = (files.size / (Runtime.getRuntime().availableProcessors() * 2)).coerceAtLeast(50)
 
         files.chunked(batchSize).map { batch ->
@@ -158,6 +157,10 @@ object SnapshotCreator {
         IGNORED_PREFIXES.any { relativePath.startsWith(it) }
 }
 
+/**
+ * SHA-256 hash of file contents, streaming through MessageDigest.
+ * Strips `\r` bytes before hashing for cross-platform line-ending consistency.
+ */
 fun hashFile(file: Path): String {
     val digest = MessageDigest.getInstance("SHA-256")
     val buffer = ByteArray(8192)
@@ -165,7 +168,6 @@ fun hashFile(file: Path): String {
         while (true) {
             val bytesRead = input.read(buffer)
             if (bytesRead == -1) break
-            // Normalise line endings: skip \r entirely so \r\n becomes \n
             for (i in 0 until bytesRead) {
                 val b = buffer[i]
                 if (b == '\r'.code.toByte()) continue

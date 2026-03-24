@@ -5,6 +5,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.createParentDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.fileSize
@@ -21,7 +22,7 @@ data class FileIndexEntry(
 
 class FileIndex {
 
-    private val entries = mutableMapOf<String, FileIndexEntry>()
+    private val entries = ConcurrentHashMap<String, FileIndexEntry>()
     private val json = Json { prettyPrint = false }
 
     fun getOrComputeHash(file: Path, relativePath: String): String {
