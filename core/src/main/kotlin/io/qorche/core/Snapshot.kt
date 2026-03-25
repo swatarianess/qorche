@@ -13,6 +13,7 @@ import java.security.MessageDigest
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.relativeTo
 
+/** Immutable point-in-time record of file hashes for a directory tree. */
 @Serializable
 data class Snapshot(
     val id: String,
@@ -22,6 +23,7 @@ data class Snapshot(
     val parentId: String? = null
 )
 
+/** Difference between two snapshots, categorised as added, modified, or deleted files. */
 @Serializable
 data class SnapshotDiff(
     val added: Set<String>,
@@ -30,8 +32,10 @@ data class SnapshotDiff(
     val beforeId: String,
     val afterId: String
 ) {
+    /** Total number of changed files across all categories. */
     val totalChanges: Int get() = added.size + modified.size + deleted.size
 
+    /** Returns a human-readable summary of the changes (e.g. "+2 added, ~1 modified"). */
     fun summary(): String = buildString {
         if (added.isNotEmpty()) append("+${added.size} added")
         if (modified.isNotEmpty()) {
@@ -46,6 +50,7 @@ data class SnapshotDiff(
     }
 }
 
+/** Factory for creating snapshots and computing diffs between them. */
 object SnapshotCreator {
 
     private val IGNORED_PREFIXES = listOf(".git/", ".gradle/", ".idea/", ".qorche/", "build/")
@@ -109,6 +114,7 @@ object SnapshotCreator {
         )
     }
 
+    /** Computes the set of added, modified, and deleted files between two snapshots. */
     fun diff(before: Snapshot, after: Snapshot): SnapshotDiff {
         val added = after.fileHashes.keys - before.fileHashes.keys
         val deleted = before.fileHashes.keys - after.fileHashes.keys

@@ -1,0 +1,8 @@
+project: qorche-dogfood-unscoped
+tasks:
+  - id: kdoc-snapshot
+    instruction: "Add KDoc to all public functions and classes in core/src/main/kotlin/io/qorche/core/Snapshot.kt that don't already have KDoc. Keep descriptions concise (one line each). Do not change any code logic. Do not modify any other files."
+  - id: kdoc-taskgraph
+    instruction: "Add KDoc to all public functions and classes in core/src/main/kotlin/io/qorche/core/TaskGraph.kt that don't already have KDoc. Keep descriptions concise (one line each). Do not change any code logic. Do not modify any other files."
+  - id: kdoc-fileindex
+    instruction: "Add KDoc to all public functions and classes in core/src/main/kotlin/io/qorche/core/FileIndex.kt that don't already have KDoc. Keep descriptions concise (one line each). Do not change any code logic. Do not modify any other files."

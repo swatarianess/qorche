@@ -12,6 +12,7 @@ import kotlin.io.path.fileSize
 import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.readText
 
+/** Cached metadata and hash for a single tracked file. */
 @Serializable
 data class FileIndexEntry(
     val relativePath: String,
@@ -20,11 +21,13 @@ data class FileIndexEntry(
     val hash: String
 )
 
+/** Concurrent cache mapping relative paths to file metadata and content hashes. */
 class FileIndex {
 
     private val entries = ConcurrentHashMap<String, FileIndexEntry>()
     private val json = Json { prettyPrint = false }
 
+    /** Returns the cached hash if size/mtime match, otherwise recomputes and caches it. */
     fun getOrComputeHash(file: Path, relativePath: String): String {
         val size = file.fileSize()
         val mtime = file.getLastModifiedTime().toMillis()
@@ -39,16 +42,20 @@ class FileIndex {
         return hash
     }
 
+    /** Removes the cached entry for the given relative path. */
     fun invalidate(relativePath: String) {
         entries.remove(relativePath)
     }
 
+    /** Removes cached entries for all given relative paths. */
     fun invalidateAll(relativePaths: Collection<String>) {
         for (path in relativePaths) entries.remove(path)
     }
 
+    /** Returns all currently cached index entries. */
     fun allEntries(): Collection<FileIndexEntry> = entries.values
 
+    /** Replaces the entire index with the given entries. */
     fun loadFrom(saved: List<FileIndexEntry>) {
         entries.clear()
         for (entry in saved) {
@@ -56,6 +63,7 @@ class FileIndex {
         }
     }
 
+    /** Returns a snapshot copy of all cached entries as a list. */
     fun exportEntries(): List<FileIndexEntry> = entries.values.toList()
 
     /**
@@ -81,5 +89,6 @@ class FileIndex {
         }
     }
 
+    /** The number of files currently in the index. */
     val size: Int get() = entries.size
 }
