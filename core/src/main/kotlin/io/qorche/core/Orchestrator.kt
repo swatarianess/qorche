@@ -19,6 +19,7 @@ class Orchestrator(private val workDir: Path) {
     private val walWriter = WALWriter(qorcheDir.resolve("wal.jsonl"))
     private val fileIndex = FileIndex()
     private val fileIndexPath = qorcheDir.resolve("file-index.json")
+    private val logsDir: Path = qorcheDir.resolve("logs").also { it.createDirectories() }
 
     init {
         fileIndex.loadFrom(fileIndexPath)
@@ -85,7 +86,10 @@ class Orchestrator(private val workDir: Path) {
 
         var agentException: Exception? = null
         try {
-            runner.run(instruction, workDir, onOutput).toList(events)
+            runner.run(instruction, workDir) { line ->
+                logToFile(taskId, line)
+                onOutput(line)
+            }.toList(events)
 
             for (event in events) {
                 when (event) {
@@ -633,7 +637,10 @@ class Orchestrator(private val workDir: Path) {
         var agentException: Exception? = null
 
         try {
-            runner.run(def.instruction, workDir, onOutput).toList(events)
+            runner.run(def.instruction, workDir) { line ->
+                logToFile(taskId, line)
+                onOutput(line)
+            }.toList(events)
 
             for (event in events) {
                 when (event) {
@@ -716,6 +723,16 @@ class Orchestrator(private val workDir: Path) {
                 java.nio.file.Files.deleteIfExists(file)
             }
         }
+    }
+
+    private fun logToFile(taskId: String, line: String) {
+        val logFile = logsDir.resolve("$taskId.log")
+        java.nio.file.Files.writeString(
+            logFile,
+            line + "\n",
+            java.nio.file.StandardOpenOption.CREATE,
+            java.nio.file.StandardOpenOption.APPEND
+        )
     }
 
     fun history(): List<Snapshot> = snapshotStore.list()

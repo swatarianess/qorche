@@ -134,6 +134,7 @@ class RunCommand : CliktCommand(name = "run") {
                 echo("Conflicts: ${result.conflicts.size} detected")
             }
             echo("Results: ${result.completedTasks} completed, ${result.failedTasks} failed, ${result.skippedTasks} skipped")
+            echo("Logs: .qorche/logs/")
             echo("Total time: ${elapsed}ms")
         }
     }

@@ -525,7 +525,7 @@ class BenchmarkTest {
     }
 
     // ─────────────────────────────────────────────────────────────
-    //  7. LARGE-SCALE (opt-in) — 50k and 100k files
+    //  9. LARGE-SCALE (opt-in) — 50k and 100k files
     // ─────────────────────────────────────────────────────────────
 
     @Test
@@ -574,7 +574,68 @@ class BenchmarkTest {
     }
 
     // ─────────────────────────────────────────────────────────────
-    //  7. PARALLEL EXECUTION (M3) — Sequential vs Parallel via Orchestrator
+    //  6. COLD START — First-run performance with no cache
+    // ─────────────────────────────────────────────────────────────
+
+    @Test
+    fun `cold start vs warm orchestrator execution`() = runBlocking {
+        println()
+        println("═══════════════════════════════════════════════════════════════════════════════════════════")
+        println("  COLD START — first run (no FileIndex) vs warm run (cached)")
+        println("═══════════════════════════════════════════════════════════════════════════════════════════")
+        println("  %-8s │ %12s │ %12s │ %10s │ %8s".format(
+            "Files", "Cold (1st)", "Warm (2nd)", "Difference", "Speedup"))
+        println("  ─────────┼──────────────┼──────────────┼────────────┼──────────")
+
+        for (fileCount in listOf(100, 500, 1_000, 5_000)) {
+            val root = Files.createTempDirectory("qorche-cold-$fileCount")
+            try {
+                createTestRepo(root, fileCount)
+
+                // Cold: no .qorche directory, no FileIndex
+                val coldOrch = Orchestrator(root)
+                val coldRunner = PerTaskMockRunner(delayMs = 10)
+                val coldDefs = listOf(
+                    TaskDefinition(id = "cold-task", instruction = "cold-task",
+                        type = TaskType.IMPLEMENT, files = listOf("output/cold-task.txt"))
+                )
+                val coldGraph = TaskGraph(coldDefs)
+
+                val coldStart = System.currentTimeMillis()
+                coldOrch.runGraphParallel("bench", coldGraph, coldRunner)
+                val coldMs = System.currentTimeMillis() - coldStart
+
+                // Warm: .qorche exists with FileIndex from cold run
+                val warmOrch = Orchestrator(root)
+                val warmRunner = PerTaskMockRunner(delayMs = 10)
+                val warmDefs = listOf(
+                    TaskDefinition(id = "warm-task", instruction = "warm-task",
+                        type = TaskType.IMPLEMENT, files = listOf("output/warm-task.txt"))
+                )
+                val warmGraph = TaskGraph(warmDefs)
+
+                val warmStart = System.currentTimeMillis()
+                warmOrch.runGraphParallel("bench", warmGraph, warmRunner)
+                val warmMs = System.currentTimeMillis() - warmStart
+
+                val diff = coldMs - warmMs
+                val speedup = if (warmMs > 0) "%.1fx".format(coldMs.toDouble() / warmMs) else "N/A"
+
+                println("  %-8s │ %10dms │ %10dms │ %7dms │ %8s".format(
+                    "%,d".format(fileCount), coldMs, warmMs, diff, speedup
+                ))
+            } finally {
+                root.toFile().deleteRecursively()
+            }
+        }
+        println()
+        println("  Cold = first run, no .qorche/ directory, no FileIndex cache")
+        println("  Warm = second run, FileIndex loaded from previous run")
+        println()
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  8. PARALLEL EXECUTION (M3) — Sequential vs Parallel via Orchestrator
     // ─────────────────────────────────────────────────────────────
 
     /**
