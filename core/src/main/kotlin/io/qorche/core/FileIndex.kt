@@ -18,6 +18,7 @@ data class FileIndexEntry(
     val relativePath: String,
     val size: Long,
     val lastModifiedEpochMs: Long,
+    val lastModifiedNanos: Long = 0,
     val hash: String
 )
 
@@ -27,18 +28,25 @@ class FileIndex {
     private val entries = ConcurrentHashMap<String, FileIndexEntry>()
     private val json = Json { prettyPrint = false }
 
-    /** Returns the cached hash if size/mtime match, otherwise recomputes and caches it. */
+    /**
+     * Returns the cached hash if size and mtime match, otherwise recomputes and caches it.
+     * Uses nanosecond precision where the filesystem supports it.
+     */
     fun getOrComputeHash(file: Path, relativePath: String): String {
         val size = file.fileSize()
-        val mtime = file.getLastModifiedTime().toMillis()
+        val fileTime = file.getLastModifiedTime()
+        val mtimeMs = fileTime.toMillis()
+        val mtimeNanos = fileTime.to(java.util.concurrent.TimeUnit.NANOSECONDS)
 
         val cached = entries[relativePath]
-        if (cached != null && cached.size == size && cached.lastModifiedEpochMs == mtime) {
+        if (cached != null && cached.size == size
+            && cached.lastModifiedEpochMs == mtimeMs
+            && cached.lastModifiedNanos == mtimeNanos) {
             return cached.hash
         }
 
         val hash = hashFile(file)
-        entries[relativePath] = FileIndexEntry(relativePath, size, mtime, hash)
+        entries[relativePath] = FileIndexEntry(relativePath, size, mtimeMs, mtimeNanos, hash)
         return hash
     }
 

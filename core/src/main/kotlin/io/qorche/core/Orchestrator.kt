@@ -98,6 +98,8 @@ class Orchestrator(private val workDir: Path) {
             throw e
         }
 
+        fileIndex.invalidateAll(filesModified)
+
         val afterSnapshot = if (scopePaths.isNotEmpty()) {
             SnapshotCreator.createScoped(workDir, scopePaths, "after: $taskId",
                 parentId = beforeSnapshot.id, fileIndex = fileIndex)
@@ -635,6 +637,8 @@ class Orchestrator(private val workDir: Path) {
                 else -> {}
             }
         }
+
+        fileIndex.invalidateAll(filesModified)
 
         val afterSnapshot = if (def.files.isNotEmpty()) {
             SnapshotCreator.createScoped(workDir, def.files, "after: $taskId",
