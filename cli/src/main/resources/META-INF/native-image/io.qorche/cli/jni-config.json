@@ -1,0 +1,27 @@
+[
+  {
+    "name": "org.sqlite.core.NativeDB",
+    "methods": [
+      {"name": "<init>", "parameterTypes": []},
+      {"name": "_open_utf8", "parameterTypes": ["byte[]", "int"]},
+      {"name": "_close", "parameterTypes": []},
+      {"name": "_exec_utf8", "parameterTypes": ["byte[]"]},
+      {"name": "_prepare_utf8", "parameterTypes": ["long", "byte[]"]},
+      {"name": "_finalize", "parameterTypes": ["long"]},
+      {"name": "_step", "parameterTypes": ["long"]},
+      {"name": "_reset", "parameterTypes": ["long"]},
+      {"name": "_column_count", "parameterTypes": ["long"]},
+      {"name": "_column_type", "parameterTypes": ["long", "int"]},
+      {"name": "_column_text_utf8", "parameterTypes": ["long", "int"]},
+      {"name": "_column_int", "parameterTypes": ["long", "int"]},
+      {"name": "_column_long", "parameterTypes": ["long", "int"]},
+      {"name": "_column_double", "parameterTypes": ["long", "int"]},
+      {"name": "_column_blob", "parameterTypes": ["long", "int"]},
+      {"name": "_column_name_utf8", "parameterTypes": ["long", "int"]},
+      {"name": "_changes", "parameterTypes": []},
+      {"name": "_total_changes", "parameterTypes": []},
+      {"name": "throwex", "parameterTypes": []}
+    ],
+    "allDeclaredFields": true
+  }
+]

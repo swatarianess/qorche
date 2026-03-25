@@ -1,0 +1,8 @@
+{
+  "resources": {
+    "includes": [
+      {"pattern": "io/qorche/cli/version.txt"},
+      {"pattern": "org/sqlite/.*"}
+    ]
+  }
+}

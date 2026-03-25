@@ -37,7 +37,13 @@ graalvmNative {
         named("main") {
             mainClass.set("io.qorche.cli.MainKt")
             imageName.set("qorche")
-            buildArgs.add("--no-fallback")
+            buildArgs.addAll(
+                "--no-fallback",
+                "-H:+ReportExceptionStackTraces"
+            )
         }
+    }
+    metadataRepository {
+        enabled.set(true)
     }
 }
