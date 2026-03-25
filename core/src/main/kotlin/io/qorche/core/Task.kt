@@ -29,7 +29,7 @@ data class TaskDefinition(
     val dependsOn: List<String> = emptyList(),
     val files: List<String> = emptyList(),
     @SerialName("max_retries")
-    val maxRetries: Int = 1
+    val maxRetries: Int = 0
 )
 
 @Serializable

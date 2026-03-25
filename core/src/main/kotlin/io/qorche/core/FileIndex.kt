@@ -39,6 +39,14 @@ class FileIndex {
         return hash
     }
 
+    fun invalidate(relativePath: String) {
+        entries.remove(relativePath)
+    }
+
+    fun invalidateAll(relativePaths: Collection<String>) {
+        for (path in relativePaths) entries.remove(path)
+    }
+
     fun allEntries(): Collection<FileIndexEntry> = entries.values
 
     fun loadFrom(saved: List<FileIndexEntry>) {

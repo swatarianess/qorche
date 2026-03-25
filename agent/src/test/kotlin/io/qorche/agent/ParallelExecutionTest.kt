@@ -190,12 +190,10 @@ class ParallelExecutionTest {
             assertTrue(result.hasConflicts, "Should report conflicts")
             assertEquals(1, result.conflicts.size)
             assertTrue(result.conflicts[0].conflictingFiles.contains("src/shared.kt"))
-            // With retry enabled (default), the earlier task (winner) completes.
-            // The loser is retried; it may succeed or fail depending on timing.
-            assertTrue(result.completedTasks >= 1, "Winner task should complete")
-            assertTrue(result.retriedTasks >= 1, "At least one task should have been retried")
-            assertEquals(2, result.completedTasks + result.failedTasks,
-                "Both tasks should have a terminal status")
+            // Default maxRetries=0: winner completes, loser fails (no retry)
+            assertEquals(1, result.completedTasks, "Winner should complete")
+            assertEquals(1, result.failedTasks, "Loser should fail")
+            assertEquals(0, result.retriedTasks, "No retries with default maxRetries=0")
         } finally {
             root.toFile().deleteRecursively()
         }
@@ -394,21 +392,10 @@ class ParallelExecutionTest {
                 runner = runner
             )
 
-            val walEntries = orchestrator.walEntries()
-
-            val conflictEntries = walEntries
+            val conflictEntries = orchestrator.walEntries()
                 .filterIsInstance<WALEntry.ConflictDetected>()
             assertTrue(conflictEntries.isNotEmpty(), "WAL should contain conflict entry")
             assertTrue(conflictEntries[0].conflictingFiles.contains("shared.txt"))
-
-            // With retry enabled by default, WAL should also contain retry entries
-            val retryScheduledEntries = walEntries
-                .filterIsInstance<WALEntry.TaskRetryScheduled>()
-            assertTrue(retryScheduledEntries.isNotEmpty(), "WAL should contain TaskRetryScheduled entry")
-
-            val retriedEntries = walEntries
-                .filterIsInstance<WALEntry.TaskRetried>()
-            assertTrue(retriedEntries.isNotEmpty(), "WAL should contain TaskRetried entry")
         } finally {
             root.toFile().deleteRecursively()
         }
@@ -452,23 +439,17 @@ class ParallelExecutionTest {
                 runner = runner
             )
 
-            // task-a wins (earlier in group), task-b is the loser and gets retried,
-            // task-c succeeds (no overlap with either)
+            // Default maxRetries=0: task-a wins, task-b fails, task-c clean
             assertTrue(result.hasConflicts)
-            assertTrue(result.retriedTasks >= 1, "task-b should have been retried")
 
-            // task-a (winner) and task-c (clean) always complete
             val aOutcome = result.taskResults["task-a"]!!
             assertEquals(TaskStatus.COMPLETED, aOutcome.status)
 
             val cOutcome = result.taskResults["task-c"]!!
             assertEquals(TaskStatus.COMPLETED, cOutcome.status)
 
-            // task-b may complete (if retry resolves conflict) or fail (if conflict persists)
-            assertTrue(result.completedTasks >= 2,
-                "At least task-a and task-c should complete, got ${result.completedTasks}")
-            assertTrue(result.completedTasks + result.failedTasks == 3,
-                "All 3 tasks should have a terminal status")
+            assertEquals(2, result.completedTasks, "task-a and task-c should complete")
+            assertEquals(1, result.failedTasks, "task-b should fail")
         } finally {
             root.toFile().deleteRecursively()
         }
@@ -489,6 +470,7 @@ class ParallelExecutionTest {
                   - id: task-b
                     instruction: "task-b work"
                     files: [shared.kt, own-b.kt]
+                    max_retries: 1
             """.trimIndent()
 
             val graph = TaskYamlParser.parseToGraph(yaml)
@@ -508,7 +490,8 @@ class ParallelExecutionTest {
             val result = orchestrator.runGraphParallel(
                 project = "retry-adapt",
                 graph = graph,
-                runner = runner
+                runner = runner,
+                retryPolicy = ConflictDetector.ConflictRetryPolicy(defaultMaxRetries = 1)
             )
 
             // task-a wins the first round, task-b retries and writes to own-b.kt
@@ -574,6 +557,7 @@ class ParallelExecutionTest {
                     instruction: "modify shared"
                   - id: task-b
                     instruction: "also modify shared"
+                    max_retries: 1
             """.trimIndent()
 
             val graph = TaskYamlParser.parseToGraph(yaml)
@@ -591,6 +575,7 @@ class ParallelExecutionTest {
                 project = "retry-callback",
                 graph = graph,
                 runner = runner,
+                retryPolicy = ConflictDetector.ConflictRetryPolicy(defaultMaxRetries = 1),
                 onRetry = { taskId, attempt, _, conflictingFiles ->
                     synchronized(retryEvents) {
                         retryEvents.add(Triple(taskId, attempt, conflictingFiles))
@@ -621,6 +606,7 @@ class ParallelExecutionTest {
                     instruction: "modify shared"
                   - id: task-b
                     instruction: "also modify shared"
+                    max_retries: 1
             """.trimIndent()
 
             val graph = TaskYamlParser.parseToGraph(yaml)
@@ -636,7 +622,8 @@ class ParallelExecutionTest {
             orchestrator.runGraphParallel(
                 project = "wal-retry",
                 graph = graph,
-                runner = runner
+                runner = runner,
+                retryPolicy = ConflictDetector.ConflictRetryPolicy(defaultMaxRetries = 1)
             )
 
             val walEntries = orchestrator.walEntries()
@@ -908,13 +895,98 @@ class ParallelExecutionTest {
             )
 
             assertTrue(result.hasConflicts, "Should detect conflict on shared.txt")
-            // Winner completes, loser is retried and may succeed or fail
-            assertTrue(result.completedTasks >= 1, "Winner task should complete")
-            assertEquals(2, result.completedTasks + result.failedTasks,
-                "Both tasks should have a terminal status")
+            assertEquals(1, result.completedTasks, "Winner should complete")
+            assertEquals(1, result.failedTasks, "Loser should fail (maxRetries=0 default)")
 
             // Verify the file exists on disk -- one of the writers won the race
             assertTrue(root.resolve("src/shared.txt").toFile().exists(), "shared.txt should exist")
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `stubborn retry - loser keeps conflicting, exhausts maxRetries`() = runBlocking {
+        val root = createTestDir()
+        try {
+            val defs = listOf(
+                TaskDefinition(id = "task-a", instruction = "task-a", files = listOf("shared.kt"), maxRetries = 0),
+                TaskDefinition(id = "task-b", instruction = "task-b", files = listOf("shared.kt"), maxRetries = 3)
+            )
+            val graph = TaskGraph(defs)
+            val orchestrator = Orchestrator(root)
+            // Use RetryAwareMockRunner that always writes shared.kt (both initial and retry)
+            // with unique content each time (via call count)
+            val runner = RetryAwareMockRunner(
+                initialFiles = mapOf(
+                    "task-a" to listOf("shared.kt"),
+                    "task-b" to listOf("shared.kt")
+                ),
+                retryFiles = mapOf(
+                    "task-a" to listOf("shared.kt"),
+                    "task-b" to listOf("shared.kt")
+                ),
+                delayMs = 10
+            )
+
+            val retryAttempts = mutableListOf<Int>()
+            val result = orchestrator.runGraphParallel(
+                project = "stubborn",
+                graph = graph,
+                runner = runner,
+                retryPolicy = ConflictDetector.ConflictRetryPolicy(defaultMaxRetries = 3),
+                onRetry = { _, attempt, _, _ -> retryAttempts.add(attempt) }
+            )
+
+            assertEquals(1, result.completedTasks, "Only winner should complete")
+            assertEquals(1, result.failedTasks, "Stubborn loser should fail after exhausting retries")
+            assertEquals(3, retryAttempts.size, "Should have retried 3 times")
+            assertEquals(listOf(1, 2, 3), retryAttempts, "Retry attempts should be sequential")
+
+            val loserOutcome = result.taskResults["task-b"]!!
+            assertEquals(TaskStatus.FAILED, loserOutcome.status)
+            assertTrue(loserOutcome.skipReason!!.contains("3 retry attempts"))
+            assertEquals(3, loserOutcome.retryCount)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `rollback removes loser files before retry`() = runBlocking {
+        val root = createTestDir()
+        try {
+            val defs = listOf(
+                TaskDefinition(id = "task-a", instruction = "task-a", files = listOf("src/a.kt")),
+                TaskDefinition(id = "task-b", instruction = "task-b-initial", files = listOf("src/a.kt", "src/b-extra.kt"), maxRetries = 1)
+            )
+            val graph = TaskGraph(defs)
+            val orchestrator = Orchestrator(root)
+
+            val runner = RetryAwareMockRunner(
+                initialFiles = mapOf(
+                    "task-a" to listOf("src/a.kt"),
+                    "task-b-initial" to listOf("src/a.kt", "src/b-extra.kt")
+                ),
+                retryFiles = mapOf(
+                    "task-a" to listOf("src/a.kt"),
+                    "task-b-initial" to listOf("src/b-only.kt")
+                ),
+                delayMs = 10
+            )
+
+            val result = orchestrator.runGraphParallel(
+                project = "rollback-test",
+                graph = graph,
+                runner = runner,
+                retryPolicy = ConflictDetector.ConflictRetryPolicy(defaultMaxRetries = 1)
+            )
+
+            assertEquals(2, result.completedTasks, "Both tasks should complete after retry")
+            assertTrue(result.success)
+
+            assertFalse(root.resolve("src/b-extra.kt").toFile().exists(),
+                "Loser's non-conflicting file (b-extra.kt) should have been rolled back before retry")
         } finally {
             root.toFile().deleteRecursively()
         }

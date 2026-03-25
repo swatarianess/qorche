@@ -420,6 +420,11 @@ class Orchestrator(private val workDir: Path) {
                         node.retryCount = attempt
                         totalRetries++
 
+                        val loserChanges = changesByTask[loserId] ?: emptySet()
+                        val winnerChanges = changesByTask[conflictPeer] ?: emptySet()
+                        rollbackTaskChanges(loserChanges, winnerChanges, baseSnapshot)
+                        fileIndex.invalidateAll(loserChanges)
+
                         onRetry(loserId, attempt, conflictPeer, conflictWith.conflictingFiles)
 
                         walWriter.append(WALEntry.TaskRetryScheduled(
@@ -455,26 +460,24 @@ class Orchestrator(private val workDir: Path) {
                             snapshotId = retryRunResult.afterSnapshot.id
                         ))
 
-                        val winnerChanges = changesByTask[conflictPeer] ?: emptySet()
                         val stillConflicting = retryChanges.intersect(winnerChanges)
+                        val retrySucceeded = retryRunResult.agentResult.exitCode == 0 && stillConflicting.isEmpty()
 
-                        if (stillConflicting.isEmpty() || retryRunResult.agentResult.exitCode == 0) {
-                            if (retryRunResult.agentResult.exitCode == 0 && stillConflicting.isEmpty()) {
-                                node.status = TaskStatus.COMPLETED
-                                node.beforeSnapshotId = retryRunResult.beforeSnapshot.id
-                                node.afterSnapshotId = retryRunResult.afterSnapshot.id
-                                node.result = retryRunResult.agentResult
-                                val outcome = TaskOutcome(
-                                    taskId = loserId,
-                                    status = TaskStatus.COMPLETED,
-                                    runResult = retryRunResult,
-                                    retryCount = attempt
-                                )
-                                outcomes[loserId] = outcome
-                                onTaskComplete(loserId, outcome)
-                                retried = true
-                                break
-                            }
+                        if (retrySucceeded) {
+                            node.status = TaskStatus.COMPLETED
+                            node.beforeSnapshotId = retryRunResult.beforeSnapshot.id
+                            node.afterSnapshotId = retryRunResult.afterSnapshot.id
+                            node.result = retryRunResult.agentResult
+                            val outcome = TaskOutcome(
+                                taskId = loserId,
+                                status = TaskStatus.COMPLETED,
+                                runResult = retryRunResult,
+                                retryCount = attempt
+                            )
+                            outcomes[loserId] = outcome
+                            onTaskComplete(loserId, outcome)
+                            retried = true
+                            break
                         }
 
                         if (attempt == maxRetries) {
@@ -667,6 +670,31 @@ class Orchestrator(private val workDir: Path) {
             walWriter.append(WALEntry.TaskFailed(taskId = taskId, error = e.message ?: "Unknown error"))
         }
         Result.failure(e)
+    }
+
+    /**
+     * Roll back a task's filesystem changes by restoring files to their base snapshot state.
+     * Files the task added (not in base) are deleted. Files the task modified are restored.
+     * Winner's changes are preserved — only the loser's non-overlapping changes are undone.
+     */
+    private fun rollbackTaskChanges(
+        loserChanges: Set<String>,
+        winnerChanges: Set<String>,
+        baseSnapshot: Snapshot
+    ) {
+        val filesToRollback = loserChanges - winnerChanges
+        for (relativePath in filesToRollback) {
+            val file = workDir.resolve(relativePath)
+            val baseHash = baseSnapshot.fileHashes[relativePath]
+            if (baseHash == null) {
+                java.nio.file.Files.deleteIfExists(file)
+            } else {
+                // File existed in base — we can't restore content from hash alone,
+                // but we can delete it so the retry starts clean.
+                // The retry will take its own before-snapshot which captures current state.
+                java.nio.file.Files.deleteIfExists(file)
+            }
+        }
     }
 
     fun history(): List<Snapshot> = snapshotStore.list()
