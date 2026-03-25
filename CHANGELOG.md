@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **core**: add per-task log files and cold-start benchmark
 
+### Performance
+
+- **ci**: optimize native binary size with serial GC and platform-specific sqlite
+
 ## [0.7.1] - 2026-03-25
 ### Fixed
 
