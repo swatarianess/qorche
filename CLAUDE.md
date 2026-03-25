@@ -27,6 +27,28 @@ and other projects. Follow the task sequence defined there.
 
 See docs/IMPLEMENTATION.md for current milestone progress and what's done vs remaining.
 
+## Design principles
+
+### Agents are untrusted reporters of their own side effects
+Never rely on an agent's self-reported file modifications for correctness.
+Agents may not report all writes (Claude Code `--print` mode emits no
+FileModified events), may report writes that didn't happen, or may crash
+after partial writes. The MVCC system must independently verify filesystem
+state through before/after snapshots. Agent reports are hints for performance
+optimisation only — snapshots are ground truth.
+
+This principle drives several design decisions:
+- FileIndex is fully cleared before after-snapshots (not selectively invalidated)
+- Scope audit operates at the group level (can't attribute to specific agents)
+- After-snapshots are always taken, even when the agent throws an exception
+- Conflict detection compares snapshot hashes, not agent-reported file lists
+
+### Snapshot-first, not event-first
+Qorche's correctness comes from filesystem snapshots (SHA-256 hashes), not
+from tracking individual file operations. This makes it work with any worker
+regardless of whether it reports what it does, and catches unexpected side
+effects that event-based approaches miss.
+
 ## Architecture constraints
 
 ### GraalVM native-image compatibility (CRITICAL)

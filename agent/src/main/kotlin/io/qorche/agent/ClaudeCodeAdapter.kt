@@ -12,9 +12,11 @@ import java.util.concurrent.TimeUnit
 /**
  * Runs Claude Code CLI as a child process.
  * @param timeoutSeconds Maximum time to wait for the process to complete.
+ * @param extraArgs Additional CLI arguments passed to claude (e.g. "--dangerously-skip-permissions").
  */
 class ClaudeCodeAdapter(
-    private val timeoutSeconds: Long = 300
+    private val timeoutSeconds: Long = 300,
+    private val extraArgs: List<String> = emptyList()
 ) : AgentRunner {
 
     override fun run(
@@ -55,11 +57,6 @@ class ClaudeCodeAdapter(
     }.flowOn(Dispatchers.IO)
 
     private fun buildCommand(instruction: String): List<String> {
-        val os = System.getProperty("os.name", "").lowercase()
-        val claudeBinary = when {
-            os.contains("win") -> "claude.cmd"
-            else -> "claude"
-        }
-        return listOf(claudeBinary, "--print", instruction)
+        return listOf("claude", "--print") + extraArgs + listOf(instruction)
     }
 }

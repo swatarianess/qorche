@@ -7,11 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 
+- **agent**: simplify ClaudeCodeAdapter, add --skip-permissions flag, dogfood KDoc
 - **ci**: add GraalVM native-image build with cross-platform CI (#9)
+
+### Documentation
+
+- add untrusted-agent design principle to CLAUDE.md and README
 
 ### Fixed
 
-- **ci**: generate changelog in PR, remove flaky timing assertion
+- **core**: always take after-snapshot even when agent crashes
+- **core**: correct working directory for CLI, clear FileIndex before after-snapshot
+- **core**: use nanosecond mtime precision, invalidate cache after agent writes
+- **ci**: generate changelog in PR, remove flaky timing assertion (#11)
 
 ## [0.6.1] - 2026-03-25
 ### Fixed

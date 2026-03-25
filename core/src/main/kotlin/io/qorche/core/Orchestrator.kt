@@ -83,6 +83,7 @@ class Orchestrator(private val workDir: Path) {
         val filesModified = mutableListOf<String>()
         var exitCode = 1
 
+        var agentException: Exception? = null
         try {
             runner.run(instruction, workDir, onOutput).toList(events)
 
@@ -94,9 +95,11 @@ class Orchestrator(private val workDir: Path) {
                 }
             }
         } catch (e: Exception) {
+            agentException = e
             walWriter.append(WALEntry.TaskFailed(taskId = taskId, error = e.message ?: "Unknown error"))
-            throw e
         }
+
+        fileIndex.clear()
 
         val afterSnapshot = if (scopePaths.isNotEmpty()) {
             SnapshotCreator.createScoped(workDir, scopePaths, "after: $taskId",
@@ -128,6 +131,8 @@ class Orchestrator(private val workDir: Path) {
         }
 
         fileIndex.saveTo(fileIndexPath)
+
+        if (agentException != null) throw agentException
 
         return RunResult(agentResult, diff, beforeSnapshot, afterSnapshot)
     }
@@ -625,16 +630,23 @@ class Orchestrator(private val workDir: Path) {
         val events = mutableListOf<AgentEvent>()
         val filesModified = mutableListOf<String>()
         var exitCode = 1
+        var agentException: Exception? = null
 
-        runner.run(def.instruction, workDir, onOutput).toList(events)
+        try {
+            runner.run(def.instruction, workDir, onOutput).toList(events)
 
-        for (event in events) {
-            when (event) {
-                is AgentEvent.FileModified -> filesModified.add(event.path)
-                is AgentEvent.Completed -> exitCode = event.exitCode
-                else -> {}
+            for (event in events) {
+                when (event) {
+                    is AgentEvent.FileModified -> filesModified.add(event.path)
+                    is AgentEvent.Completed -> exitCode = event.exitCode
+                    else -> {}
+                }
             }
+        } catch (e: Exception) {
+            agentException = e
         }
+
+        fileIndex.clear()
 
         val afterSnapshot = if (def.files.isNotEmpty()) {
             SnapshotCreator.createScoped(workDir, def.files, "after: $taskId",
@@ -649,7 +661,12 @@ class Orchestrator(private val workDir: Path) {
         val agentResult = AgentResult(exitCode = exitCode, filesModified = filesModified)
 
         walMutex.withLock {
-            if (exitCode == 0) {
+            if (agentException != null) {
+                walWriter.append(WALEntry.TaskFailed(
+                    taskId = taskId,
+                    error = agentException.message ?: "Unknown error"
+                ))
+            } else if (exitCode == 0) {
                 walWriter.append(WALEntry.TaskCompleted(
                     taskId = taskId,
                     snapshotId = afterSnapshot.id,
@@ -664,7 +681,11 @@ class Orchestrator(private val workDir: Path) {
             }
         }
 
-        Result.success(RunResult(agentResult, diff, beforeSnapshot, afterSnapshot))
+        if (agentException != null) {
+            Result.failure(agentException)
+        } else {
+            Result.success(RunResult(agentResult, diff, beforeSnapshot, afterSnapshot))
+        }
     } catch (e: Exception) {
         walMutex.withLock {
             walWriter.append(WALEntry.TaskFailed(taskId = taskId, error = e.message ?: "Unknown error"))

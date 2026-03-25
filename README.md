@@ -54,7 +54,23 @@ tasks:
     files: [dist/]
 ```
 
-Tasks without dependencies run in parallel. Qorche detects conflicts if two parallel tasks modify the same file.
+Tasks without dependencies run in parallel. Qorche detects conflicts if two parallel tasks modify the same file. On conflict, the earlier task wins and the loser can be retried (`max_retries: 1`).
+
+## Design principles
+
+**Agents are untrusted.** Qorche never relies on workers to report what files they modified. Instead, it takes SHA-256 snapshots of the filesystem before and after each task. This catches all side effects — expected or not — regardless of whether the worker reports them.
+
+**Snapshots are ground truth.** Conflict detection compares snapshot hashes, not event streams. This makes Qorche work with any worker type: LLM agents that don't report file changes, shell scripts, build tools, or anything else that modifies files.
+
+**Crash-safe.** If a worker crashes mid-execution, the after-snapshot still captures the dirty filesystem state. Partial writes are visible to conflict detection.
+
+## How it works
+
+1. Define tasks in YAML with dependencies and (optional) file scopes
+2. `qorche plan tasks.yaml` shows execution order and parallel groups
+3. `qorche run tasks.yaml` executes: parallel groups run concurrently, snapshots taken before/after
+4. Write-write conflicts detected via snapshot diff — conflicting tasks fail, dependents skip
+5. Everything logged to `.qorche/wal.jsonl` for audit and replay
 
 ## Requirements
 

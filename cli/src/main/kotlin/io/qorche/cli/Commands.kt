@@ -27,11 +27,13 @@ class QorcheCommand : CliktCommand(name = "qorche") {
 class RunCommand : CliktCommand(name = "run") {
     private val instructionOrFile by argument()
     private val verbose by option("--verbose", "-v").flag()
+    private val skipPermissions by option("--skip-permissions").flag()
 
     override fun run() {
         val workDir = Path.of(System.getProperty("user.dir"))
         val orchestrator = Orchestrator(workDir)
-        val runner = ClaudeCodeAdapter()
+        val extraArgs = if (skipPermissions) listOf("--dangerously-skip-permissions") else emptyList()
+        val runner = ClaudeCodeAdapter(extraArgs = extraArgs)
         val startTime = System.currentTimeMillis()
 
         val isYamlFile = instructionOrFile.endsWith(".yaml") || instructionOrFile.endsWith(".yml")

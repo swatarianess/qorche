@@ -4,10 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
 import java.nio.file.Path
 
-/**
- * Interface for running agents. Defined in core/ so that core code can
- * reference it without depending on agent/. Implementations live in agent/.
- */
+/** Defines how external workers execute tasks. */
 interface AgentRunner {
     fun run(
         instruction: String,
@@ -16,6 +13,7 @@ interface AgentRunner {
     ): Flow<AgentEvent>
 }
 
+/** Lifecycle events produced by an agent run. */
 sealed class AgentEvent {
     data class Output(val text: String) : AgentEvent()
     data class FileModified(val path: String) : AgentEvent()
@@ -23,6 +21,7 @@ sealed class AgentEvent {
     data class Error(val message: String) : AgentEvent()
 }
 
+/** Outcome of a completed agent execution. */
 @Serializable
 data class AgentResult(
     val exitCode: Int,

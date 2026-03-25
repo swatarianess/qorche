@@ -1,0 +1,6 @@
+project: qorche-dogfood-conflict
+tasks:
+  - id: agent-a
+    instruction: "Add a KDoc comment to the AgentRunner interface in core/src/main/kotlin/io/qorche/core/AgentRunner.kt saying '/** Defines how external workers execute tasks. */'. Also add KDoc '/** Events emitted during agent execution. */' to the AgentEvent sealed class in the same file. Do not change any code logic. Do not modify any other files."
+  - id: agent-b
+    instruction: "Add a KDoc comment to the AgentEvent sealed class in core/src/main/kotlin/io/qorche/core/AgentRunner.kt saying '/** Lifecycle events produced by an agent run. */'. Also add KDoc '/** Outcome of a completed agent execution. */' to the AgentResult data class in the same file. Do not change any code logic. Do not modify any other files."

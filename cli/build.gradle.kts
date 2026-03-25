@@ -7,6 +7,10 @@ application {
     mainClass.set("io.qorche.cli.MainKt")
 }
 
+tasks.named<JavaExec>("run") {
+    workingDir = rootProject.projectDir
+}
+
 dependencies {
     implementation(project(":core"))
     implementation(project(":agent"))

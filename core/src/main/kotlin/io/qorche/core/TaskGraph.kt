@@ -1,8 +1,10 @@
 package io.qorche.core
 
+/** Exception thrown when a cycle is detected in the task dependency graph. */
 class CycleDetectedException(val cycle: List<String>) :
     IllegalArgumentException("Cycle detected in task graph: ${cycle.joinToString(" -> ")}")
 
+/** Directed acyclic graph of tasks with dependency-aware scheduling. */
 class TaskGraph(definitions: List<TaskDefinition>) {
 
     private val nodes: Map<String, TaskNode> =
@@ -20,6 +22,7 @@ class TaskGraph(definitions: List<TaskDefinition>) {
         detectCycles()
     }
 
+    /** Returns task IDs in topological order (dependencies before dependents). */
     fun topologicalSort(): List<String> {
         val visited = mutableSetOf<String>()
         val result = mutableListOf<String>()
@@ -39,6 +42,7 @@ class TaskGraph(definitions: List<TaskDefinition>) {
         return result
     }
 
+    /** Returns pending tasks whose dependencies have all completed. */
     fun readyTasks(): List<TaskNode> =
         nodes.values.filter { node ->
             node.status == TaskStatus.PENDING &&
@@ -47,6 +51,7 @@ class TaskGraph(definitions: List<TaskDefinition>) {
                 }
         }
 
+    /** Groups tasks into waves that can execute concurrently within each wave. */
     fun parallelGroups(): List<List<String>> {
         val remaining = nodes.keys.toMutableSet()
         val completed = mutableSetOf<String>()
@@ -64,8 +69,10 @@ class TaskGraph(definitions: List<TaskDefinition>) {
         return groups
     }
 
+    /** Returns the task node with the given [id], or null if not found. */
     operator fun get(id: String): TaskNode? = nodes[id]
 
+    /** Returns all task nodes in the graph. */
     fun allNodes(): Collection<TaskNode> = nodes.values
 
     private fun detectCycles() {
