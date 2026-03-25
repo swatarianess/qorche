@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **agent**: simplify ClaudeCodeAdapter, add --skip-permissions flag, dogfood KDoc
 - **ci**: add GraalVM native-image build with cross-platform CI (#9)
 
+### Documentation
+
+- add untrusted-agent design principle to CLAUDE.md and README
+
 ### Fixed
 
 - **core**: always take after-snapshot even when agent crashes
