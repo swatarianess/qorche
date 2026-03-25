@@ -8,6 +8,11 @@ package io.qorche.core
  */
 object ConflictDetector {
 
+    data class ConflictRetryPolicy(
+        val defaultMaxRetries: Int = 1,
+        val enabled: Boolean = true
+    )
+
     data class ConflictReport(
         val conflicts: Set<String>,
         val agentAOnly: Set<String>,
@@ -80,6 +85,48 @@ object ConflictDetector {
         }
 
         return conflicts
+    }
+
+    /**
+     * Result of conflict resolution: which tasks keep their changes (winners)
+     * and which must retry (losers). A task that is a loser in any conflict
+     * must retry, even if it won against a different task.
+     */
+    data class ConflictResolution(
+        val winners: Set<String>,
+        val losers: Set<String>,
+        val conflicts: List<TaskConflict>
+    )
+
+    /**
+     * Resolve conflicts by selecting winners based on group order.
+     * Earlier tasks in [groupOrder] win over later ones.
+     * A task that loses any conflict must retry, even if it won others.
+     */
+    fun resolveConflicts(
+        conflicts: List<TaskConflict>,
+        groupOrder: List<String>
+    ): ConflictResolution {
+        val winners = mutableSetOf<String>()
+        val losers = mutableSetOf<String>()
+
+        for (conflict in conflicts) {
+            val indexA = groupOrder.indexOf(conflict.taskA)
+            val indexB = groupOrder.indexOf(conflict.taskB)
+            if (indexA < indexB) {
+                winners.add(conflict.taskA)
+                losers.add(conflict.taskB)
+            } else {
+                winners.add(conflict.taskB)
+                losers.add(conflict.taskA)
+            }
+        }
+
+        return ConflictResolution(
+            winners = winners - losers,
+            losers = losers,
+            conflicts = conflicts
+        )
     }
 
     /**

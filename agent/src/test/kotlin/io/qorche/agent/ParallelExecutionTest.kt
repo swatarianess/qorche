@@ -73,6 +73,40 @@ class ParallelExecutionTest {
         }.flowOn(Dispatchers.IO)
     }
 
+    /**
+     * A mock runner that changes its behavior on retry.
+     * On the first call for an instruction, writes [initialFiles].
+     * On subsequent calls, writes [retryFiles] instead.
+     */
+    class RetryAwareMockRunner(
+        private val initialFiles: Map<String, List<String>>,
+        private val retryFiles: Map<String, List<String>>,
+        private val delayMs: Long = 30
+    ) : AgentRunner {
+        private val callCounts = ConcurrentHashMap<String, AtomicInteger>()
+
+        override fun run(
+            instruction: String,
+            workingDirectory: Path,
+            onOutput: (String) -> Unit
+        ): Flow<AgentEvent> = flow {
+            val count = callCounts.getOrPut(instruction) { AtomicInteger(0) }.incrementAndGet()
+            val files = if (count == 1) initialFiles[instruction] else retryFiles[instruction]
+
+            emit(AgentEvent.Output("Starting (attempt $count): $instruction"))
+            delay(delayMs)
+
+            for (relativePath in files ?: emptyList()) {
+                val file = workingDirectory.resolve(relativePath)
+                Files.createDirectories(file.parent)
+                Files.writeString(file, "// Modified by: $instruction (attempt $count)\n")
+                emit(AgentEvent.FileModified(relativePath.replace("\\", "/")))
+            }
+
+            emit(AgentEvent.Completed(exitCode = 0))
+        }.flowOn(Dispatchers.IO)
+    }
+
     private fun createTestDir(): Path {
         val root = Files.createTempDirectory("qorche-parallel-test")
         root.resolve("src").createDirectories()
@@ -156,8 +190,12 @@ class ParallelExecutionTest {
             assertTrue(result.hasConflicts, "Should report conflicts")
             assertEquals(1, result.conflicts.size)
             assertTrue(result.conflicts[0].conflictingFiles.contains("src/shared.kt"))
-            assertEquals(2, result.failedTasks, "Both conflicting tasks should fail")
-            assertFalse(result.success)
+            // With retry enabled (default), the earlier task (winner) completes.
+            // The loser is retried; it may succeed or fail depending on timing.
+            assertTrue(result.completedTasks >= 1, "Winner task should complete")
+            assertTrue(result.retriedTasks >= 1, "At least one task should have been retried")
+            assertEquals(2, result.completedTasks + result.failedTasks,
+                "Both tasks should have a terminal status")
         } finally {
             root.toFile().deleteRecursively()
         }
@@ -203,7 +241,7 @@ class ParallelExecutionTest {
             assertEquals(3, result.completedTasks)
             assertTrue(result.success)
 
-            // If truly parallel (3 tasks × 100ms each), should take ~100-200ms
+            // If truly parallel (3 tasks x 100ms each), should take ~100-200ms
             // If sequential, would take ~300ms+
             // Use generous bounds to avoid flakiness
             assertTrue(elapsed < 500, "Should be faster than sequential. Took ${elapsed}ms")
@@ -220,7 +258,7 @@ class ParallelExecutionTest {
     fun `diamond DAG - sequential then parallel then sequential`() = runBlocking {
         val root = createTestDir()
         try {
-            // explore → (backend, frontend) → integrate
+            // explore -> (backend, frontend) -> integrate
             val yaml = """
                 project: diamond
                 tasks:
@@ -356,10 +394,21 @@ class ParallelExecutionTest {
                 runner = runner
             )
 
-            val conflictEntries = orchestrator.walEntries()
+            val walEntries = orchestrator.walEntries()
+
+            val conflictEntries = walEntries
                 .filterIsInstance<WALEntry.ConflictDetected>()
             assertTrue(conflictEntries.isNotEmpty(), "WAL should contain conflict entry")
             assertTrue(conflictEntries[0].conflictingFiles.contains("shared.txt"))
+
+            // With retry enabled by default, WAL should also contain retry entries
+            val retryScheduledEntries = walEntries
+                .filterIsInstance<WALEntry.TaskRetryScheduled>()
+            assertTrue(retryScheduledEntries.isNotEmpty(), "WAL should contain TaskRetryScheduled entry")
+
+            val retriedEntries = walEntries
+                .filterIsInstance<WALEntry.TaskRetried>()
+            assertTrue(retriedEntries.isNotEmpty(), "WAL should contain TaskRetried entry")
         } finally {
             root.toFile().deleteRecursively()
         }
@@ -370,8 +419,8 @@ class ParallelExecutionTest {
         val root = createTestDir()
         try {
             // With file scoping, each task's snapshot only covers its own files.
-            // task-a and task-b both claim shared.kt → conflict.
-            // task-c only claims unique.kt → no conflict.
+            // task-a and task-b both claim shared.kt -> conflict.
+            // task-c only claims unique.kt -> no conflict.
             val yaml = """
                 project: mixed-conflict
                 tasks:
@@ -403,13 +452,205 @@ class ParallelExecutionTest {
                 runner = runner
             )
 
-            // task-c should succeed, task-a and task-b should fail due to conflict
-            assertEquals(1, result.completedTasks, "Only task-c should complete")
-            assertEquals(2, result.failedTasks, "task-a and task-b should fail")
+            // task-a wins (earlier in group), task-b is the loser and gets retried,
+            // task-c succeeds (no overlap with either)
             assertTrue(result.hasConflicts)
+            assertTrue(result.retriedTasks >= 1, "task-b should have been retried")
+
+            // task-a (winner) and task-c (clean) always complete
+            val aOutcome = result.taskResults["task-a"]!!
+            assertEquals(TaskStatus.COMPLETED, aOutcome.status)
 
             val cOutcome = result.taskResults["task-c"]!!
             assertEquals(TaskStatus.COMPLETED, cOutcome.status)
+
+            // task-b may complete (if retry resolves conflict) or fail (if conflict persists)
+            assertTrue(result.completedTasks >= 2,
+                "At least task-a and task-c should complete, got ${result.completedTasks}")
+            assertTrue(result.completedTasks + result.failedTasks == 3,
+                "All 3 tasks should have a terminal status")
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `conflict with retry - loser adapts on retry`() = runBlocking {
+        val root = createTestDir()
+        try {
+            // task-a and task-b both initially write to shared.kt.
+            // On retry, task-b writes to own-b.kt instead (adapting to avoid conflict).
+            val yaml = """
+                project: retry-adapt
+                tasks:
+                  - id: task-a
+                    instruction: "task-a work"
+                    files: [shared.kt]
+                  - id: task-b
+                    instruction: "task-b work"
+                    files: [shared.kt, own-b.kt]
+            """.trimIndent()
+
+            val graph = TaskYamlParser.parseToGraph(yaml)
+            val orchestrator = Orchestrator(root)
+            val runner = RetryAwareMockRunner(
+                initialFiles = mapOf(
+                    "task-a work" to listOf("shared.kt"),
+                    "task-b work" to listOf("shared.kt")
+                ),
+                retryFiles = mapOf(
+                    "task-a work" to listOf("shared.kt"),
+                    "task-b work" to listOf("own-b.kt")
+                ),
+                delayMs = 30
+            )
+
+            val result = orchestrator.runGraphParallel(
+                project = "retry-adapt",
+                graph = graph,
+                runner = runner
+            )
+
+            // task-a wins the first round, task-b retries and writes to own-b.kt
+            // so no conflict on retry
+            assertTrue(result.retriedTasks >= 1, "At least one task should have been retried")
+            assertEquals(0, result.failedTasks, "No tasks should fail after successful retry")
+            assertEquals(2, result.completedTasks, "Both tasks should complete")
+            assertTrue(result.success)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `conflict with retry disabled - falls back to fail-fast`() = runBlocking {
+        val root = createTestDir()
+        try {
+            val yaml = """
+                project: no-retry
+                tasks:
+                  - id: task-a
+                    instruction: "modify shared"
+                  - id: task-b
+                    instruction: "also modify shared"
+            """.trimIndent()
+
+            val graph = TaskYamlParser.parseToGraph(yaml)
+            val orchestrator = Orchestrator(root)
+            val runner = InstructionAwareMockRunner(
+                filesByInstruction = mapOf(
+                    "modify shared" to listOf("src/shared.kt"),
+                    "also modify shared" to listOf("src/shared.kt")
+                ),
+                delayMs = 50
+            )
+
+            val result = orchestrator.runGraphParallel(
+                project = "no-retry",
+                graph = graph,
+                runner = runner,
+                retryPolicy = ConflictDetector.ConflictRetryPolicy(enabled = false)
+            )
+
+            assertTrue(result.hasConflicts, "Should report conflicts")
+            // Winner (earlier in group) completes, loser fails immediately (no retry)
+            assertEquals(1, result.completedTasks, "Winner task should complete")
+            assertEquals(1, result.failedTasks, "Loser should fail without retry")
+            assertEquals(0, result.retriedTasks, "No retries should have occurred")
+            assertFalse(result.success)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `onRetry callback fires with correct parameters`() = runBlocking {
+        val root = createTestDir()
+        try {
+            val yaml = """
+                project: retry-callback
+                tasks:
+                  - id: task-a
+                    instruction: "modify shared"
+                  - id: task-b
+                    instruction: "also modify shared"
+            """.trimIndent()
+
+            val graph = TaskYamlParser.parseToGraph(yaml)
+            val orchestrator = Orchestrator(root)
+            val runner = InstructionAwareMockRunner(
+                filesByInstruction = mapOf(
+                    "modify shared" to listOf("src/shared.kt"),
+                    "also modify shared" to listOf("src/shared.kt")
+                ),
+                delayMs = 50
+            )
+
+            val retryEvents = mutableListOf<Triple<String, Int, Set<String>>>()
+            orchestrator.runGraphParallel(
+                project = "retry-callback",
+                graph = graph,
+                runner = runner,
+                onRetry = { taskId, attempt, _, conflictingFiles ->
+                    synchronized(retryEvents) {
+                        retryEvents.add(Triple(taskId, attempt, conflictingFiles))
+                    }
+                }
+            )
+
+            assertTrue(retryEvents.isNotEmpty(), "onRetry callback should have fired")
+            val (taskId, attempt, files) = retryEvents[0]
+            assertTrue(taskId == "task-a" || taskId == "task-b",
+                "Retried task should be one of the conflicting tasks")
+            assertEquals(1, attempt, "First retry should be attempt 1")
+            assertTrue(files.contains("src/shared.kt"),
+                "Conflicting files should include src/shared.kt")
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `WAL contains retry entries`() = runBlocking {
+        val root = createTestDir()
+        try {
+            val yaml = """
+                project: wal-retry
+                tasks:
+                  - id: task-a
+                    instruction: "modify shared"
+                  - id: task-b
+                    instruction: "also modify shared"
+            """.trimIndent()
+
+            val graph = TaskYamlParser.parseToGraph(yaml)
+            val orchestrator = Orchestrator(root)
+            val runner = InstructionAwareMockRunner(
+                filesByInstruction = mapOf(
+                    "modify shared" to listOf("src/shared.kt"),
+                    "also modify shared" to listOf("src/shared.kt")
+                ),
+                delayMs = 50
+            )
+
+            orchestrator.runGraphParallel(
+                project = "wal-retry",
+                graph = graph,
+                runner = runner
+            )
+
+            val walEntries = orchestrator.walEntries()
+
+            val retryScheduled = walEntries.filterIsInstance<WALEntry.TaskRetryScheduled>()
+            assertTrue(retryScheduled.isNotEmpty(), "WAL should contain TaskRetryScheduled entries")
+            assertTrue(retryScheduled[0].attempt >= 1, "Attempt number should be >= 1")
+            assertTrue(retryScheduled[0].conflictingFiles.contains("src/shared.kt"),
+                "TaskRetryScheduled should reference the conflicting file")
+
+            val retried = walEntries.filterIsInstance<WALEntry.TaskRetried>()
+            assertTrue(retried.isNotEmpty(), "WAL should contain TaskRetried entries")
+            assertTrue(retried[0].attempt >= 1, "Attempt number should be >= 1")
+            assertTrue(retried[0].snapshotId.isNotEmpty(), "TaskRetried should have a snapshot ID")
         } finally {
             root.toFile().deleteRecursively()
         }
@@ -458,7 +699,7 @@ class ParallelExecutionTest {
             val violation = result.scopeViolations.first()
             assertTrue(violation.undeclaredFiles.contains("src/sneaky.kt"),
                 "Should identify src/sneaky.kt as undeclared")
-            // Can't attribute to specific task — both are suspects
+            // Can't attribute to specific task -- both are suspects
             assertTrue(violation.suspectTaskIds.containsAll(listOf("task-a", "task-b")),
                 "Both tasks should be listed as suspects (group-level attribution)")
 
@@ -549,11 +790,11 @@ class ParallelExecutionTest {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------
     //  Integration tests with real processes
     //  Uses a custom AgentRunner that spawns real java processes
     //  to write files, avoiding cross-platform shell issues.
-    // ─────────────────────────────────────────────────────────────
+    // ---------------------------------------------------------------
 
     /**
      * AgentRunner that spawns a real child process (java) to write a file.
@@ -574,7 +815,7 @@ class ParallelExecutionTest {
             val files = filesByInstruction[instruction] ?: emptyList()
             for (relativePath in files) {
                 val file = workingDirectory.resolve(relativePath)
-                // Use ProcessBuilder to run java to write the file — a real child process
+                // Use ProcessBuilder to run java to write the file -- a real child process
                 val javaHome = System.getProperty("java.home")
                 val javaBin = Path.of(javaHome, "bin", "java").toString()
                 val process = ProcessBuilder(
@@ -631,7 +872,7 @@ class ParallelExecutionTest {
             assertFalse(result.hasConflicts, "No conflicts expected")
             assertTrue(result.success)
 
-            // Verify files actually exist on disk — written by real processes
+            // Verify files actually exist on disk -- written by real processes
             assertTrue(root.resolve("src/a_output.txt").toFile().exists(), "a_output.txt should exist")
             assertTrue(root.resolve("src/b_output.txt").toFile().exists(), "b_output.txt should exist")
         } finally {
@@ -667,9 +908,12 @@ class ParallelExecutionTest {
             )
 
             assertTrue(result.hasConflicts, "Should detect conflict on shared.txt")
-            assertEquals(2, result.failedTasks, "Both tasks should fail due to conflict")
+            // Winner completes, loser is retried and may succeed or fail
+            assertTrue(result.completedTasks >= 1, "Winner task should complete")
+            assertEquals(2, result.completedTasks + result.failedTasks,
+                "Both tasks should have a terminal status")
 
-            // Verify the file exists on disk — one of the writers won the race
+            // Verify the file exists on disk -- one of the writers won the race
             assertTrue(root.resolve("src/shared.txt").toFile().exists(), "shared.txt should exist")
         } finally {
             root.toFile().deleteRecursively()

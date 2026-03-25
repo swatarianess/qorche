@@ -38,10 +38,11 @@ class Orchestrator(private val workDir: Path) {
         val completedTasks: Int,
         val failedTasks: Int,
         val skippedTasks: Int,
+        val retriedTasks: Int = 0,
         val conflicts: List<ConflictDetector.TaskConflict> = emptyList(),
         val scopeViolations: List<ConflictDetector.ScopeViolation> = emptyList()
     ) {
-        val success: Boolean get() = failedTasks == 0 && conflicts.isEmpty()
+        val success: Boolean get() = failedTasks == 0
         val hasConflicts: Boolean get() = conflicts.isNotEmpty()
         val hasScopeViolations: Boolean get() = scopeViolations.isNotEmpty()
     }
@@ -50,7 +51,8 @@ class Orchestrator(private val workDir: Path) {
         val taskId: String,
         val status: TaskStatus,
         val runResult: RunResult? = null,
-        val skipReason: String? = null
+        val skipReason: String? = null,
+        val retryCount: Int = 0
     )
 
     /**
@@ -224,13 +226,23 @@ class Orchestrator(private val workDir: Path) {
      * Strategy on conflict: fail-fast. Conflicting tasks are marked FAILED, and their
      * dependents are skipped. Non-conflicting tasks in the same group succeed normally.
      */
+    /**
+     * Execute a task graph with parallel execution within groups.
+     *
+     * Tasks in the same parallel group run concurrently. After each group,
+     * MVCC conflict detection checks for write-write conflicts. On conflict,
+     * the earlier task in group order wins; losers are retried sequentially
+     * against the updated filesystem (up to [retryPolicy] limits).
+     */
     suspend fun runGraphParallel(
         project: String,
         graph: TaskGraph,
         runner: AgentRunner,
+        retryPolicy: ConflictDetector.ConflictRetryPolicy = ConflictDetector.ConflictRetryPolicy(),
         onTaskStart: (TaskDefinition) -> Unit = {},
         onTaskComplete: (String, TaskOutcome) -> Unit = { _, _ -> },
         onConflict: (ConflictDetector.TaskConflict) -> Unit = {},
+        onRetry: (taskId: String, attempt: Int, conflictWith: String, conflictingFiles: Set<String>) -> Unit = { _, _, _, _ -> },
         onScopeViolation: (ConflictDetector.ScopeViolation) -> Unit = {},
         onOutput: (String) -> Unit = {}
     ): GraphResult {
@@ -238,6 +250,7 @@ class Orchestrator(private val workDir: Path) {
         val failedTasks = mutableSetOf<String>()
         val allConflicts = mutableListOf<ConflictDetector.TaskConflict>()
         val allScopeViolations = mutableListOf<ConflictDetector.ScopeViolation>()
+        var totalRetries = 0
         val walMutex = Mutex()
 
         val groups = graph.parallelGroups()
@@ -325,42 +338,12 @@ class Orchestrator(private val workDir: Path) {
             }
 
             val conflicts = ConflictDetector.detectGroupConflicts(changesByTask)
-            val conflictedTaskIds = mutableSetOf<String>()
 
-            for (conflict in conflicts) {
-                allConflicts.add(conflict)
-                conflictedTaskIds.add(conflict.taskA)
-                conflictedTaskIds.add(conflict.taskB)
-                onConflict(conflict)
-
-                walWriter.append(WALEntry.ConflictDetected(
-                    taskId = conflict.taskA,
-                    conflictingTaskId = conflict.taskB,
-                    conflictingFiles = conflict.conflictingFiles.toList(),
-                    baseSnapshotId = baseSnapshot.id
-                ))
-            }
-
-            for (taskId in changesByTask.keys) {
-                if (taskId in outcomes) continue
-                val node = graph[taskId]!!
-                val runResult = taskRunResults[taskId] ?: continue
-
-                if (taskId in conflictedTaskIds) {
-                    node.status = TaskStatus.FAILED
-                    failedTasks.add(taskId)
-                    node.beforeSnapshotId = runResult.beforeSnapshot.id
-                    node.afterSnapshotId = runResult.afterSnapshot.id
-                    node.result = runResult.agentResult
-                    val outcome = TaskOutcome(
-                        taskId = taskId,
-                        status = TaskStatus.FAILED,
-                        runResult = runResult,
-                        skipReason = "MVCC conflict detected"
-                    )
-                    outcomes[taskId] = outcome
-                    onTaskComplete(taskId, outcome)
-                } else {
+            if (conflicts.isEmpty()) {
+                for (taskId in changesByTask.keys) {
+                    if (taskId in outcomes) continue
+                    val node = graph[taskId]!!
+                    val runResult = taskRunResults[taskId] ?: continue
                     node.status = TaskStatus.COMPLETED
                     node.beforeSnapshotId = runResult.beforeSnapshot.id
                     node.afterSnapshotId = runResult.afterSnapshot.id
@@ -368,6 +351,162 @@ class Orchestrator(private val workDir: Path) {
                     val outcome = TaskOutcome(taskId = taskId, status = TaskStatus.COMPLETED, runResult = runResult)
                     outcomes[taskId] = outcome
                     onTaskComplete(taskId, outcome)
+                }
+            } else {
+                for (conflict in conflicts) {
+                    allConflicts.add(conflict)
+                    onConflict(conflict)
+                    walWriter.append(WALEntry.ConflictDetected(
+                        taskId = conflict.taskA,
+                        conflictingTaskId = conflict.taskB,
+                        conflictingFiles = conflict.conflictingFiles.toList(),
+                        baseSnapshotId = baseSnapshot.id
+                    ))
+                }
+
+                val resolution = ConflictDetector.resolveConflicts(conflicts, runnableTasks)
+
+                for (taskId in changesByTask.keys) {
+                    if (taskId in outcomes) continue
+                    val node = graph[taskId]!!
+                    val runResult = taskRunResults[taskId] ?: continue
+
+                    if (taskId !in resolution.losers) {
+                        node.status = TaskStatus.COMPLETED
+                        node.beforeSnapshotId = runResult.beforeSnapshot.id
+                        node.afterSnapshotId = runResult.afterSnapshot.id
+                        node.result = runResult.agentResult
+                        val outcome = TaskOutcome(taskId = taskId, status = TaskStatus.COMPLETED, runResult = runResult)
+                        outcomes[taskId] = outcome
+                        onTaskComplete(taskId, outcome)
+                    }
+                }
+
+                for (loserId in resolution.losers) {
+                    if (loserId in outcomes) continue
+                    val node = graph[loserId] ?: continue
+                    val def = node.definition
+                    val maxRetries = if (retryPolicy.enabled) {
+                        def.maxRetries.coerceAtMost(retryPolicy.defaultMaxRetries)
+                    } else {
+                        0
+                    }
+
+                    val conflictWith = conflicts.first { it.taskA == loserId || it.taskB == loserId }
+                    val conflictPeer = if (conflictWith.taskA == loserId) conflictWith.taskB else conflictWith.taskA
+
+                    if (maxRetries <= 0) {
+                        node.status = TaskStatus.FAILED
+                        failedTasks.add(loserId)
+                        val runResult = taskRunResults[loserId]
+                        if (runResult != null) {
+                            node.beforeSnapshotId = runResult.beforeSnapshot.id
+                            node.afterSnapshotId = runResult.afterSnapshot.id
+                            node.result = runResult.agentResult
+                        }
+                        val outcome = TaskOutcome(
+                            taskId = loserId,
+                            status = TaskStatus.FAILED,
+                            runResult = taskRunResults[loserId],
+                            skipReason = "MVCC conflict with '$conflictPeer' (retries disabled)"
+                        )
+                        outcomes[loserId] = outcome
+                        onTaskComplete(loserId, outcome)
+                        continue
+                    }
+
+                    var retried = false
+                    for (attempt in 1..maxRetries) {
+                        node.retryCount = attempt
+                        totalRetries++
+
+                        onRetry(loserId, attempt, conflictPeer, conflictWith.conflictingFiles)
+
+                        walWriter.append(WALEntry.TaskRetryScheduled(
+                            taskId = loserId,
+                            attempt = attempt,
+                            conflictWith = conflictPeer,
+                            conflictingFiles = conflictWith.conflictingFiles.toList()
+                        ))
+
+                        val retryResult = executeTaskInternal(loserId, def, runner, walMutex, onOutput)
+
+                        if (retryResult.isFailure) {
+                            node.status = TaskStatus.FAILED
+                            failedTasks.add(loserId)
+                            val outcome = TaskOutcome(
+                                taskId = loserId,
+                                status = TaskStatus.FAILED,
+                                skipReason = "Retry attempt $attempt failed: ${retryResult.exceptionOrNull()?.message}",
+                                retryCount = attempt
+                            )
+                            outcomes[loserId] = outcome
+                            onTaskComplete(loserId, outcome)
+                            retried = true
+                            break
+                        }
+
+                        val retryRunResult = retryResult.getOrThrow()
+                        val retryChanges = retryRunResult.diff.added + retryRunResult.diff.modified + retryRunResult.diff.deleted
+
+                        walWriter.append(WALEntry.TaskRetried(
+                            taskId = loserId,
+                            attempt = attempt,
+                            snapshotId = retryRunResult.afterSnapshot.id
+                        ))
+
+                        val winnerChanges = changesByTask[conflictPeer] ?: emptySet()
+                        val stillConflicting = retryChanges.intersect(winnerChanges)
+
+                        if (stillConflicting.isEmpty() || retryRunResult.agentResult.exitCode == 0) {
+                            if (retryRunResult.agentResult.exitCode == 0 && stillConflicting.isEmpty()) {
+                                node.status = TaskStatus.COMPLETED
+                                node.beforeSnapshotId = retryRunResult.beforeSnapshot.id
+                                node.afterSnapshotId = retryRunResult.afterSnapshot.id
+                                node.result = retryRunResult.agentResult
+                                val outcome = TaskOutcome(
+                                    taskId = loserId,
+                                    status = TaskStatus.COMPLETED,
+                                    runResult = retryRunResult,
+                                    retryCount = attempt
+                                )
+                                outcomes[loserId] = outcome
+                                onTaskComplete(loserId, outcome)
+                                retried = true
+                                break
+                            }
+                        }
+
+                        if (attempt == maxRetries) {
+                            node.status = TaskStatus.FAILED
+                            failedTasks.add(loserId)
+                            node.beforeSnapshotId = retryRunResult.beforeSnapshot.id
+                            node.afterSnapshotId = retryRunResult.afterSnapshot.id
+                            node.result = retryRunResult.agentResult
+                            val outcome = TaskOutcome(
+                                taskId = loserId,
+                                status = TaskStatus.FAILED,
+                                runResult = retryRunResult,
+                                skipReason = "MVCC conflict persists after $attempt retry attempts",
+                                retryCount = attempt
+                            )
+                            outcomes[loserId] = outcome
+                            onTaskComplete(loserId, outcome)
+                            retried = true
+                        }
+                    }
+
+                    if (!retried) {
+                        node.status = TaskStatus.FAILED
+                        failedTasks.add(loserId)
+                        val outcome = TaskOutcome(
+                            taskId = loserId,
+                            status = TaskStatus.FAILED,
+                            skipReason = "MVCC conflict with '$conflictPeer'"
+                        )
+                        outcomes[loserId] = outcome
+                        onTaskComplete(loserId, outcome)
+                    }
                 }
             }
 
@@ -409,6 +548,7 @@ class Orchestrator(private val workDir: Path) {
             completedTasks = allNodes.count { it.status == TaskStatus.COMPLETED },
             failedTasks = allNodes.count { it.status == TaskStatus.FAILED },
             skippedTasks = allNodes.count { it.status == TaskStatus.SKIPPED },
+            retriedTasks = totalRetries,
             conflicts = allConflicts,
             scopeViolations = allScopeViolations
         )

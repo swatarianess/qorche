@@ -27,7 +27,9 @@ data class TaskDefinition(
     val type: TaskType = TaskType.IMPLEMENT,
     @SerialName("depends_on")
     val dependsOn: List<String> = emptyList(),
-    val files: List<String> = emptyList()
+    val files: List<String> = emptyList(),
+    @SerialName("max_retries")
+    val maxRetries: Int = 1
 )
 
 @Serializable
@@ -41,5 +43,6 @@ data class TaskNode(
     var status: TaskStatus = TaskStatus.PENDING,
     var beforeSnapshotId: String? = null,
     var afterSnapshotId: String? = null,
-    var result: AgentResult? = null
+    var result: AgentResult? = null,
+    var retryCount: Int = 0
 )

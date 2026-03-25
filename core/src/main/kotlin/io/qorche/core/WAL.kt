@@ -55,6 +55,25 @@ sealed class WALEntry {
     ) : WALEntry()
 
     @Serializable
+    @SerialName("task_retry_scheduled")
+    data class TaskRetryScheduled(
+        override val timestamp: Instant = Clock.System.now(),
+        override val taskId: String,
+        val attempt: Int,
+        val conflictWith: String,
+        val conflictingFiles: List<String>
+    ) : WALEntry()
+
+    @Serializable
+    @SerialName("task_retried")
+    data class TaskRetried(
+        override val timestamp: Instant = Clock.System.now(),
+        override val taskId: String,
+        val attempt: Int,
+        val snapshotId: String
+    ) : WALEntry()
+
+    @Serializable
     @SerialName("conflict_detected")
     data class ConflictDetected(
         override val timestamp: Instant = Clock.System.now(),
