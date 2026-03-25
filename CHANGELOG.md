@@ -5,20 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
+### Fixed
+
+- **core**: add per-task log files and cold-start benchmark
+
+## [0.7.1] - 2026-03-25
+### Fixed
+
+- **ci**: merge native build into release workflow (#14)
+
+## [0.7.0] - 2026-03-25
 ### Added
 
-- **agent**: simplify ClaudeCodeAdapter, add --skip-permissions flag, dogfood KDoc
+- **agent**: simplify ClaudeCodeAdapter, fix snapshot cache, dogfood KDoc (#12)
 - **ci**: add GraalVM native-image build with cross-platform CI (#9)
-
-### Documentation
-
-- add untrusted-agent design principle to CLAUDE.md and README
 
 ### Fixed
 
-- **core**: always take after-snapshot even when agent crashes
-- **core**: correct working directory for CLI, clear FileIndex before after-snapshot
-- **core**: use nanosecond mtime precision, invalidate cache after agent writes
+- **ci**: add workflow_dispatch to release workflow (#13)
 - **ci**: generate changelog in PR, remove flaky timing assertion (#11)
 
 ## [0.6.1] - 2026-03-25
