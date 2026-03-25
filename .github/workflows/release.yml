@@ -17,6 +17,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      new_release: ${{ steps.release.outputs.new_release_published }}
 
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +40,60 @@ jobs:
           node-version: 22
 
       - name: Semantic Release
+        id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
+
+  native-build:
+    needs: release
+    if: needs.release.outputs.new_release == 'true' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: qorche-linux-amd64
+            binary: cli/build/native/nativeCompile/qorche
+          - os: windows-latest
+            artifact: qorche-windows-amd64.exe
+            binary: cli/build/native/nativeCompile/qorche.exe
+          - os: macos-latest
+            artifact: qorche-macos-arm64
+            binary: cli/build/native/nativeCompile/qorche
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: 21
+          distribution: graalvm-community
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build native image
+        run: ./gradlew :cli:nativeCompile
+
+      - name: Verify binary runs
+        shell: bash
+        run: |
+          "${{ matrix.binary }}" version
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
+
+      - name: Attach to latest release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(git describe --tags --abbrev=0)
+          cp "${{ matrix.binary }}" "${{ matrix.artifact }}"
+          gh release upload "$TAG" "${{ matrix.artifact }}" --clobber
