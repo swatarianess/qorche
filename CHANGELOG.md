@@ -7,26 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 
-- **cli**: add help text to all commands and options
-- **cli**: add --color/--no-color flags, improve terminal detection
-- **cli**: add status, logs commands, colored output
-- **cli**: add JSON output, exit codes, and scope overlap warnings
-
-### CI/CD
-
-- run tests on develop branch PRs and pushes
-
-### Documentation
-
-- add workplan and CLI roadmap
+- **cli**: add JSON output, exit codes, and scope overlap warnings (P0) (#18)
 
 ### Fixed
 
-- **cli**: remove --color flag, rely on auto-detection
-
-### Testing
-
-- **cli**: add 9 E2E tests with YAML fixtures
+- **ci**: auto-trigger release from CI after tests pass on main
 
 ## [0.7.4] - 2026-03-26
 ### Fixed
