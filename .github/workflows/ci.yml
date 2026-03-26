@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - '**.kt'
       - '**.kts'
@@ -11,7 +11,7 @@ on:
       - 'gradlew.bat'
       - '.github/workflows/ci.yml'
   pull_request:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - '**.kt'
       - '**.kts'

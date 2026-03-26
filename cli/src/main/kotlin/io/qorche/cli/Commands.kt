@@ -4,6 +4,7 @@ import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
+import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.int
@@ -15,19 +16,28 @@ import io.qorche.core.TaskStatus
 import io.qorche.core.TaskYamlParser
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
+import kotlin.system.exitProcess
+
+private fun cliVersion(): String =
+    object {}.javaClass.getResourceAsStream("/io/qorche/cli/version.txt")
+        ?.bufferedReader()?.readText()?.trim() ?: "dev"
 
 class QorcheCommand : CliktCommand(name = "qorche") {
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Orchestrate concurrent filesystem mutations with MVCC conflict detection"
     override fun run() = Unit
 
     init {
-        subcommands(RunCommand(), PlanCommand(), HistoryCommand(), DiffCommand(), VersionCommand())
+        subcommands(RunCommand(), PlanCommand(), StatusCommand(), LogsCommand(), HistoryCommand(), DiffCommand(), VersionCommand())
     }
 }
 
 class RunCommand : CliktCommand(name = "run") {
-    private val instructionOrFile by argument()
-    private val verbose by option("--verbose", "-v").flag()
-    private val skipPermissions by option("--skip-permissions").flag()
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Execute a task instruction or YAML task graph"
+
+    private val instructionOrFile by argument(help = "Instruction string or path to a YAML task file")
+    private val verbose by option("--verbose", "-v", help = "Show agent output").flag()
+    private val skipPermissions by option("--skip-permissions", help = "Pass --dangerously-skip-permissions to Claude Code").flag()
+    private val output by option("--output", "-o", help = "Output format: text or json").default("text")
 
     override fun run() {
         val workDir = Path.of(System.getProperty("user.dir"))
@@ -46,7 +56,7 @@ class RunCommand : CliktCommand(name = "run") {
     }
 
     private fun runSingleTask(orchestrator: Orchestrator, runner: ClaudeCodeAdapter, startTime: Long) {
-        echo("Starting: $instructionOrFile")
+        if (output == "text") echo("Starting: $instructionOrFile")
 
         runBlocking {
             val result = orchestrator.runTask(
@@ -54,22 +64,40 @@ class RunCommand : CliktCommand(name = "run") {
                 instruction = instructionOrFile,
                 runner = runner
             ) { line ->
-                if (verbose) echo("[agent] $line")
+                if (verbose && output == "text") echo("[agent] $line", err = true)
             }
 
             val elapsed = System.currentTimeMillis() - startTime
-            val diff = result.diff
 
-            echo("")
-            if (diff.totalChanges > 0) {
-                echo("Changes: ${diff.summary()}")
-                for (f in diff.added) echo("  + $f")
-                for (f in diff.modified) echo("  ~ $f")
-                for (f in diff.deleted) echo("  - $f")
+            if (output == "json") {
+                val graphResult = Orchestrator.GraphResult(
+                    project = "cli-run",
+                    taskResults = mapOf("cli-run" to Orchestrator.TaskOutcome(
+                        taskId = "cli-run",
+                        status = if (result.agentResult.exitCode == 0) TaskStatus.COMPLETED else TaskStatus.FAILED,
+                        runResult = result
+                    )),
+                    totalTasks = 1,
+                    completedTasks = if (result.agentResult.exitCode == 0) 1 else 0,
+                    failedTasks = if (result.agentResult.exitCode == 0) 0 else 1,
+                    skippedTasks = 0
+                )
+                echo(graphResult.toJson("cli-run", cliVersion(), elapsed))
             } else {
-                echo("No file changes detected")
+                val diff = result.diff
+                echo("")
+                if (diff.totalChanges > 0) {
+                    echo("Changes: ${diff.summary()}")
+                    for (f in diff.added) echo("  + $f")
+                    for (f in diff.modified) echo("  ~ $f")
+                    for (f in diff.deleted) echo("  - $f")
+                } else {
+                    echo("No file changes detected")
+                }
+                echo("Completed (exit ${result.agentResult.exitCode}) in ${elapsed}ms")
             }
-            echo("Completed (exit ${result.agentResult.exitCode}) in ${elapsed}ms")
+
+            if (result.agentResult.exitCode != 0) exitProcess(1)
         }
     }
 
@@ -84,18 +112,20 @@ class RunCommand : CliktCommand(name = "run") {
             TaskYamlParser.parseFileToGraph(filePath)
         } catch (e: TaskParseException) {
             echo("Error: ${e.message}", err = true)
-            return
+            exitProcess(2)
         } catch (e: CycleDetectedException) {
             echo("Error: ${e.message}", err = true)
-            return
+            exitProcess(2)
         } catch (e: IllegalArgumentException) {
             echo("Error: ${e.message}", err = true)
-            return
+            exitProcess(2)
         }
 
-        echo("Project: ${project.project}")
-        echo("Tasks: ${project.tasks.size}")
-        echo("")
+        if (output == "text") {
+            echo("Project: ${project.project}")
+            echo("Tasks: ${project.tasks.size}")
+            echo("")
+        }
 
         runBlocking {
             val result = orchestrator.runGraphParallel(
@@ -103,45 +133,59 @@ class RunCommand : CliktCommand(name = "run") {
                 graph = graph,
                 runner = runner,
                 onTaskStart = { def ->
-                    echo("[${def.id}] Starting: ${def.instruction}")
+                    if (output == "text") echo("${Terminal.cyan("[${def.id}]")} Starting: ${def.instruction}")
                 },
                 onTaskComplete = { taskId, outcome ->
-                    when (outcome.status) {
-                        TaskStatus.COMPLETED -> {
-                            val diff = outcome.runResult?.diff
-                            if (diff != null && diff.totalChanges > 0) {
-                                echo("[${taskId}] Done: ${diff.summary()}")
-                            } else {
-                                echo("[${taskId}] Done (no changes)")
+                    if (output == "text") {
+                        when (outcome.status) {
+                            TaskStatus.COMPLETED -> {
+                                val diff = outcome.runResult?.diff
+                                if (diff != null && diff.totalChanges > 0) {
+                                    echo("${Terminal.green("[${taskId}]")} Done: ${diff.summary()}")
+                                } else {
+                                    echo("${Terminal.green("[${taskId}]")} Done (no changes)")
+                                }
                             }
+                            TaskStatus.FAILED -> echo("${Terminal.red("[${taskId}]")} FAILED: ${outcome.skipReason ?: "non-zero exit"}")
+                            TaskStatus.SKIPPED -> echo("${Terminal.dim("[${taskId}]")} SKIPPED: ${outcome.skipReason}")
+                            else -> {}
                         }
-                        TaskStatus.FAILED -> echo("[${taskId}] FAILED: ${outcome.skipReason ?: "non-zero exit"}")
-                        TaskStatus.SKIPPED -> echo("[${taskId}] SKIPPED: ${outcome.skipReason}")
-                        else -> {}
                     }
                 },
                 onConflict = { conflict ->
-                    echo("[CONFLICT] ${conflict.taskA} <-> ${conflict.taskB}: ${conflict.conflictingFiles.joinToString(", ")}")
+                    if (output == "text") {
+                        echo("${Terminal.red("[CONFLICT]")} ${conflict.taskA} <-> ${conflict.taskB}: ${conflict.conflictingFiles.joinToString(", ")}")
+                    }
                 },
                 onOutput = { line ->
-                    if (verbose) echo("[agent] $line")
+                    if (verbose) echo("[agent] $line", err = output == "json")
                 }
             )
 
             val elapsed = System.currentTimeMillis() - startTime
-            echo("")
-            if (result.hasConflicts) {
-                echo("Conflicts: ${result.conflicts.size} detected")
+
+            if (output == "json") {
+                echo(result.toJson(project.project, cliVersion(), elapsed))
+            } else {
+                echo("")
+                if (result.hasConflicts) {
+                    echo("Conflicts: ${result.conflicts.size} detected")
+                }
+                echo("Results: ${result.completedTasks} completed, ${result.failedTasks} failed, ${result.skippedTasks} skipped")
+                echo("Logs: .qorche/logs/")
+                echo("Total time: ${elapsed}ms")
             }
-            echo("Results: ${result.completedTasks} completed, ${result.failedTasks} failed, ${result.skippedTasks} skipped")
-            echo("Logs: .qorche/logs/")
-            echo("Total time: ${elapsed}ms")
+
+            if (!result.success) exitProcess(1)
         }
     }
 }
 
 class PlanCommand : CliktCommand(name = "plan") {
-    private val file by argument()
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Preview execution order and parallel groups without running"
+
+    private val file by argument(help = "Path to a YAML task file")
+    private val output by option("--output", "-o", help = "Output format: text or json").default("text")
 
     override fun run() {
         val workDir = Path.of(System.getProperty("user.dir"))
@@ -151,12 +195,17 @@ class PlanCommand : CliktCommand(name = "plan") {
             TaskYamlParser.parseFileToGraph(filePath)
         } catch (e: TaskParseException) {
             echo("Error: ${e.message}", err = true)
-            return
+            exitProcess(2)
         } catch (e: CycleDetectedException) {
             echo("Error: ${e.message}", err = true)
-            return
+            exitProcess(2)
         } catch (e: IllegalArgumentException) {
             echo("Error: ${e.message}", err = true)
+            exitProcess(2)
+        }
+
+        if (output == "json") {
+            echo(buildPlanJson(project.project, cliVersion(), graph, project.tasks))
             return
         }
 
@@ -186,13 +235,23 @@ class PlanCommand : CliktCommand(name = "plan") {
             }
         }
 
+        val warnings = detectScopeOverlaps(project.tasks)
+        if (warnings.isNotEmpty()) {
+            echo("")
+            for (w in warnings) {
+                echo("  Warning: ${w.taskA} and ${w.taskB} overlap on ${w.overlappingFiles.joinToString(", ")}")
+            }
+        }
+
         echo("")
         echo("Use 'qorche run ${file}' to execute.")
     }
 }
 
 class HistoryCommand : CliktCommand(name = "history") {
-    private val limit by option("--limit", "-n").int()
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "List past snapshots with timestamps and file counts"
+
+    private val limit by option("--limit", "-n", help = "Maximum number of snapshots to show").int()
 
     override fun run() {
         val workDir = Path.of(System.getProperty("user.dir"))
@@ -215,8 +274,10 @@ class HistoryCommand : CliktCommand(name = "history") {
 }
 
 class DiffCommand : CliktCommand(name = "diff") {
-    private val id1 by argument()
-    private val id2 by argument().optional()
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Show file changes between two snapshots"
+
+    private val id1 by argument(help = "First snapshot ID (or prefix)")
+    private val id2 by argument(help = "Second snapshot ID (or prefix, defaults to parent)").optional()
 
     override fun run() {
         val workDir = Path.of(System.getProperty("user.dir"))
@@ -248,9 +309,8 @@ class DiffCommand : CliktCommand(name = "diff") {
 }
 
 class VersionCommand : CliktCommand(name = "version") {
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Print version info"
     override fun run() {
-        val version = javaClass.getResourceAsStream("/io/qorche/cli/version.txt")
-            ?.bufferedReader()?.readText()?.trim() ?: "dev"
-        echo("qorche $version")
+        echo("qorche ${cliVersion()}")
     }
 }

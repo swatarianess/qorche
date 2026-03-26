@@ -1,0 +1,8 @@
+project: test-cycle
+tasks:
+  - id: task-a
+    instruction: "a depends on b"
+    depends_on: [task-b]
+  - id: task-b
+    instruction: "b depends on a"
+    depends_on: [task-a]

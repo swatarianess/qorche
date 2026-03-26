@@ -1,0 +1,8 @@
+project: test-overlap
+tasks:
+  - id: task-a
+    instruction: "modify auth"
+    files: [src/auth.kt, src/shared.kt]
+  - id: task-b
+    instruction: "modify login"
+    files: [src/login.kt, src/shared.kt]

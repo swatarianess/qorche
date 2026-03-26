@@ -1,0 +1,18 @@
+project: test-diamond
+tasks:
+  - id: explore
+    instruction: "explore"
+    type: explore
+    files: [src/explore.kt]
+  - id: backend
+    instruction: "backend"
+    depends_on: [explore]
+    files: [src/backend.kt]
+  - id: frontend
+    instruction: "frontend"
+    depends_on: [explore]
+    files: [src/frontend.kt]
+  - id: integrate
+    instruction: "integrate"
+    depends_on: [backend, frontend]
+    files: [src/integrate.kt]

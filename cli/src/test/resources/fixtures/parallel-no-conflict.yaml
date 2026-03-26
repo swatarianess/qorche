@@ -1,0 +1,11 @@
+project: test-parallel
+tasks:
+  - id: task-a
+    instruction: "task a"
+    files: [src/a.kt]
+  - id: task-b
+    instruction: "task b"
+    files: [src/b.kt]
+  - id: task-c
+    instruction: "task c"
+    files: [src/c.kt]
