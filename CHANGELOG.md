@@ -5,15 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
+### Documentation
+
+- update CLAUDE.md, remove stale sqlite and implementation references
+
 ### Fixed
 
-- **core**: add per-task log files and cold-start benchmark
+- **ci**: enable UPX on Windows, disable strip to prevent binary corruption
+- **ci**: fix Windows native build, add local build support
 
-### Performance
+## [0.7.2] - 2026-03-25
+### Fixed
 
-- **ci**: add UPX compression for native binaries (Linux/Windows)
-- **cli**: remove unused sqlite-jdbc dependency, native binary 55MB → 20MB
-- **ci**: optimize native binary size with serial GC and platform-specific sqlite
+- **core**: add per-task log files and cold-start benchmark (#15)
 
 ## [0.7.1] - 2026-03-25
 ### Fixed

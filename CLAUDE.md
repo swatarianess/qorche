@@ -25,7 +25,7 @@ See docs/PHASE1_PLAN.md for the full roadmap, data models, milestone definitions
 (M0 -> M1 -> M2), architecture decisions, and relationship to AgentFS, Koog, CASS,
 and other projects. Follow the task sequence defined there.
 
-See docs/IMPLEMENTATION.md for current milestone progress and what's done vs remaining.
+See docs/WORKPLAN.md for active tasks and backlog. Check this first when starting a new session.
 
 ## Design principles
 
@@ -57,15 +57,14 @@ effects that event-based approaches miss.
 - NO Gson or Jackson — use kotlinx.serialization exclusively.
 - NO java.io.Serializable for data transfer.
 - Use @Serializable annotation on all persistent data classes.
-- Register any JNI usage explicitly (sqlite-jdbc needs this).
 - If adding a new dependency, verify GraalVM compatibility FIRST.
 
 ### Cross-platform (Windows, macOS, Linux)
 - ALWAYS use java.nio.file.Path for file operations.
 - Store all paths with forward slashes as the canonical form.
 - Normalise on read: path.replace("\\", "/")
-- Process spawning: detect OS via System.getProperty("os.name") and adjust
-  binary names (e.g., `claude` vs `claude.exe`).
+- Process spawning: use binary name without extension (e.g., `claude`).
+  The OS resolves `.exe` on Windows automatically when on PATH.
 - Normalise line endings to `\n` before hashing files.
 
 ### Module boundaries (STRICT)
@@ -83,16 +82,11 @@ in core/ and implement it in the appropriate module.
 - Use Sequence/Flow instead of intermediate List copies for large collections
 - Minimise object allocations in hot paths (file hashing, snapshot comparison)
 
-### SQLite
-- Use standard SQLite via sqlite-jdbc. NOT FrankenSQLite, DuckDB, or any MVCC database.
-- Enable WAL mode: `PRAGMA journal_mode=WAL`
-- Our MVCC operates at the filesystem level above SQLite, not inside the database.
-- Single writer (the orchestrator daemon), concurrent readers (CLI queries, dashboard).
-
 ### No frameworks
 - No Ktor, Spring, Compose Multiplatform, or any application framework.
-- Plain Kotlin with kotlinx.coroutines, kotlinx.serialization, Clikt (CLI), sqlite-jdbc.
-- This is a CLI daemon, not a web app or GUI application.
+- Plain Kotlin with kotlinx.coroutines, kotlinx.serialization, Clikt (CLI).
+- This is a CLI tool, not a web app or GUI application.
+- All persistence uses JSON files — no database dependency.
 
 ## Coding style
 
@@ -131,7 +125,8 @@ in core/ and implement it in the appropriate module.
 
 ## Local data directory
 - `.qorche/` is the local data store (similar to `.git/`)
-- `.qorche/snapshots/` — snapshot files
-- `.qorche/wal.jsonl` — write-ahead log
-- `.qorche/db.sqlite` — persistent index and metadata
+- `.qorche/snapshots/` — snapshot files (JSON)
+- `.qorche/wal.jsonl` — write-ahead log (JSON Lines)
+- `.qorche/file-index.json` — mtime/hash cache for fast re-snapshots
+- `.qorche/logs/` — per-task agent output logs
 - `.qorche/` should be in .gitignore for user projects

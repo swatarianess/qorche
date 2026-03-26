@@ -84,6 +84,7 @@ jobs:
         with:
           files: ${{ matrix.binary }}
           args: --best --lzma
+          strip: ${{ matrix.os == 'ubuntu-latest' }}
 
       - name: Verify binary runs
         shell: bash

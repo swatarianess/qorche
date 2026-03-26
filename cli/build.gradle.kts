@@ -40,12 +40,16 @@ graalvmNative {
         named("main") {
             mainClass.set("io.qorche.cli.MainKt")
             imageName.set("qorche")
-            buildArgs.addAll(
+            val args = mutableListOf(
                 "--no-fallback",
                 "-Ob",
                 "--gc=serial",
                 "-H:+ReportExceptionStackTraces"
             )
+            if (System.getProperty("os.name", "").lowercase().contains("win")) {
+                args.add("-H:-CheckToolchain")
+            }
+            buildArgs.addAll(args)
         }
     }
     metadataRepository {
