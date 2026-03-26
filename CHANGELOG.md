@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **cli**: add status, logs commands, colored output
 - **cli**: add JSON output, exit codes, and scope overlap warnings
 
+### CI/CD
+
+- run tests on develop branch PRs and pushes
+
 ### Documentation
 
 - add workplan and CLI roadmap
