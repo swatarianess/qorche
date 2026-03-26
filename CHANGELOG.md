@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 
+- **cli**: add status, logs commands, colored output
 - **cli**: add JSON output, exit codes, and scope overlap warnings
 
 ### Documentation
