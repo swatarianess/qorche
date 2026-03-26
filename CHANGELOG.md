@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - add workplan and CLI roadmap
 
+### Testing
+
+- **cli**: add 9 E2E tests with YAML fixtures
+
 ## [0.7.4] - 2026-03-26
 ### Fixed
 
