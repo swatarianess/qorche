@@ -7,11 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 
+- **core**: add KDocs to public API
 - **cli**: add JSON output, exit codes, and scope overlap warnings (P0) (#18)
 
 ### Fixed
 
-- **ci**: pin to gradle/actions@v4 to avoid proprietary caching license
+- **ci**: pin to gradle/actions@v4 to avoid proprietary caching license (#20)
 - **ci**: auto-trigger release from CI after tests pass on main (#19)
 
 ## [0.7.4] - 2026-03-26
