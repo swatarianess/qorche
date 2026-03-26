@@ -23,6 +23,7 @@ private fun cliVersion(): String =
         ?.bufferedReader()?.readText()?.trim() ?: "dev"
 
 class QorcheCommand : CliktCommand(name = "qorche") {
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Orchestrate concurrent filesystem mutations with MVCC conflict detection"
     override fun run() = Unit
 
     init {
@@ -31,10 +32,12 @@ class QorcheCommand : CliktCommand(name = "qorche") {
 }
 
 class RunCommand : CliktCommand(name = "run") {
-    private val instructionOrFile by argument()
-    private val verbose by option("--verbose", "-v").flag()
-    private val skipPermissions by option("--skip-permissions").flag()
-    private val output by option("--output", "-o").default("text")
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Execute a task instruction or YAML task graph"
+
+    private val instructionOrFile by argument(help = "Instruction string or path to a YAML task file")
+    private val verbose by option("--verbose", "-v", help = "Show agent output").flag()
+    private val skipPermissions by option("--skip-permissions", help = "Pass --dangerously-skip-permissions to Claude Code").flag()
+    private val output by option("--output", "-o", help = "Output format: text or json").default("text")
 
     override fun run() {
         val workDir = Path.of(System.getProperty("user.dir"))
@@ -179,8 +182,10 @@ class RunCommand : CliktCommand(name = "run") {
 }
 
 class PlanCommand : CliktCommand(name = "plan") {
-    private val file by argument()
-    private val output by option("--output", "-o").default("text")
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Preview execution order and parallel groups without running"
+
+    private val file by argument(help = "Path to a YAML task file")
+    private val output by option("--output", "-o", help = "Output format: text or json").default("text")
 
     override fun run() {
         val workDir = Path.of(System.getProperty("user.dir"))
@@ -244,7 +249,9 @@ class PlanCommand : CliktCommand(name = "plan") {
 }
 
 class HistoryCommand : CliktCommand(name = "history") {
-    private val limit by option("--limit", "-n").int()
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "List past snapshots with timestamps and file counts"
+
+    private val limit by option("--limit", "-n", help = "Maximum number of snapshots to show").int()
 
     override fun run() {
         val workDir = Path.of(System.getProperty("user.dir"))
@@ -267,8 +274,10 @@ class HistoryCommand : CliktCommand(name = "history") {
 }
 
 class DiffCommand : CliktCommand(name = "diff") {
-    private val id1 by argument()
-    private val id2 by argument().optional()
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Show file changes between two snapshots"
+
+    private val id1 by argument(help = "First snapshot ID (or prefix)")
+    private val id2 by argument(help = "Second snapshot ID (or prefix, defaults to parent)").optional()
 
     override fun run() {
         val workDir = Path.of(System.getProperty("user.dir"))
@@ -300,6 +309,7 @@ class DiffCommand : CliktCommand(name = "diff") {
 }
 
 class VersionCommand : CliktCommand(name = "version") {
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Print version info"
     override fun run() {
         echo("qorche ${cliVersion()}")
     }

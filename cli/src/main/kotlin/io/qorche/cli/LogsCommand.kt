@@ -11,7 +11,9 @@ import kotlin.io.path.name
 import kotlin.io.path.readText
 
 class LogsCommand : CliktCommand(name = "logs") {
-    private val taskId by argument().optional()
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "List task logs or view a specific task's output"
+
+    private val taskId by argument(help = "Task ID to view log for (omit to list all)").optional()
 
     override fun run() {
         val workDir = Path.of(System.getProperty("user.dir"))

@@ -9,6 +9,7 @@ import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.fileSize
 
 class StatusCommand : CliktCommand(name = "status") {
+    override fun help(context: com.github.ajalt.clikt.core.Context) = "Show workspace state: snapshots, WAL entries, logs, last activity"
 
     override fun run() {
         val workDir = Path.of(System.getProperty("user.dir"))
