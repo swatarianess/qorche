@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - add workplan and CLI roadmap
 
+### Fixed
+
+- **cli**: remove --color flag, rely on auto-detection
+
 ### Testing
 
 - **cli**: add 9 E2E tests with YAML fixtures
