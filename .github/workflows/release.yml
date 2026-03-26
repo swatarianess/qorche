@@ -3,6 +3,9 @@ name: Release
 on:
   push:
     branches: [main]
+  pull_request:
+    types: [closed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +15,10 @@ permissions:
 
 jobs:
   release:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
     runs-on: ubuntu-latest
     outputs:
       new_release: ${{ steps.release.outputs.new_release_published }}
@@ -45,7 +51,9 @@ jobs:
 
   native-build:
     needs: release
-    if: needs.release.outputs.new_release == 'true' || github.event_name == 'workflow_dispatch'
+    if: >-
+      needs.release.outputs.new_release == 'true' ||
+      github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         include:
