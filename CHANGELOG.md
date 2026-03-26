@@ -5,14 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
+### Added
+
+- **cli**: add JSON output, exit codes, and scope overlap warnings
+
 ### Documentation
 
-- update CLAUDE.md, remove stale sqlite and implementation references
+- add workplan and CLI roadmap
 
+## [0.7.4] - 2026-03-26
 ### Fixed
 
-- **ci**: enable UPX on Windows, disable strip to prevent binary corruption
-- **ci**: fix Windows native build, add local build support
+- **ci**: disable UPX on Windows, GraalVM PE binaries incompatible (#17)
+
+## [0.7.3] - 2026-03-26
+### Fixed
+
+- **ci**: fix Windows native build, UPX only on Linux (#16)
 
 ## [0.7.2] - 2026-03-25
 ### Fixed
