@@ -1,7 +1,6 @@
 package io.qorche.cli
 
 import com.github.ajalt.clikt.core.CliktCommand
-import com.github.ajalt.clikt.core.context
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.optional
@@ -24,14 +23,7 @@ private fun cliVersion(): String =
         ?.bufferedReader()?.readText()?.trim() ?: "dev"
 
 class QorcheCommand : CliktCommand(name = "qorche") {
-    private val color by option("--color").flag("--no-color", default = false, defaultForHelp = "auto")
-
-    override fun run() {
-        if (color) Terminal.forceColor = true
-        if (currentContext.invokedSubcommand == null) {
-            echo(getFormattedHelp())
-        }
-    }
+    override fun run() = Unit
 
     init {
         subcommands(RunCommand(), PlanCommand(), StatusCommand(), LogsCommand(), HistoryCommand(), DiffCommand(), VersionCommand())
