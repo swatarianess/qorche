@@ -717,27 +717,31 @@ class Orchestrator(private val workDir: Path) {
     ) {
         val filesToRollback = loserChanges - winnerChanges
         for (relativePath in filesToRollback) {
-            val file = workDir.resolve(relativePath)
-            val baseHash = baseSnapshot.fileHashes[relativePath]
-            if (baseHash == null) {
+            try {
+                val file = workDir.resolve(relativePath)
+                // Delete the loser's file so the retry starts from a clean state.
+                // We can't restore content from a hash alone — the retry will take
+                // its own before-snapshot which captures current filesystem state.
                 java.nio.file.Files.deleteIfExists(file)
-            } else {
-                // File existed in base — we can't restore content from hash alone,
-                // but we can delete it so the retry starts clean.
-                // The retry will take its own before-snapshot which captures current state.
-                java.nio.file.Files.deleteIfExists(file)
+            } catch (_: Exception) {
+                // Best-effort rollback — locked files on Windows or permission errors
+                // should not prevent the retry from proceeding
             }
         }
     }
 
     private fun logToFile(taskId: String, line: String) {
-        val logFile = logsDir.resolve("$taskId.log")
-        java.nio.file.Files.writeString(
-            logFile,
-            line + "\n",
-            java.nio.file.StandardOpenOption.CREATE,
-            java.nio.file.StandardOpenOption.APPEND
-        )
+        try {
+            val logFile = logsDir.resolve("$taskId.log")
+            java.nio.file.Files.writeString(
+                logFile,
+                line + "\n",
+                java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.APPEND
+            )
+        } catch (_: Exception) {
+            // Best-effort logging — never crash a task because logging failed
+        }
     }
 
     fun history(): List<Snapshot> = snapshotStore.list()

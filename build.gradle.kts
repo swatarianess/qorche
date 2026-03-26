@@ -4,17 +4,19 @@ plugins {
     id("org.graalvm.buildtools.native") version "0.10.6" apply false
 }
 
-fun gitVersion(): String {
+fun gitVersion(): String = try {
     val process = ProcessBuilder("git", "describe", "--tags", "--abbrev=0")
         .directory(rootDir)
         .redirectErrorStream(true)
         .start()
     val tag = process.inputStream.bufferedReader().readText().trim()
-    return if (process.waitFor() == 0 && tag.startsWith("v")) {
+    if (process.waitFor() == 0 && tag.startsWith("v")) {
         tag.removePrefix("v")
     } else {
         "0.0.0-dev"
     }
+} catch (_: Exception) {
+    "0.0.0-dev"
 }
 
 allprojects {
