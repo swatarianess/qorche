@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **ci**: auto-trigger release from CI after tests pass on main
+- **ci**: pin to gradle/actions@v4 to avoid proprietary caching license
+- **ci**: auto-trigger release from CI after tests pass on main (#19)
 
 ## [0.7.4] - 2026-03-26
 ### Fixed
