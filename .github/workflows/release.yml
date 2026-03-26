@@ -79,12 +79,11 @@ jobs:
         run: ./gradlew :cli:nativeCompile
 
       - name: Compress with UPX
-        if: matrix.os != 'macos-latest'
+        if: matrix.os == 'ubuntu-latest'
         uses: svenstaro/upx-action@v2
         with:
           files: ${{ matrix.binary }}
           args: --best --lzma
-          strip: ${{ matrix.os == 'ubuntu-latest' }}
 
       - name: Verify binary runs
         shell: bash
