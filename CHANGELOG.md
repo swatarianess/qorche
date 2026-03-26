@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-## [Unreleased]
+## [0.8.0] - 2026-03-26
 ### Added
 
 - **core**: add KDocs to public API (#21)
@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **ci**: trigger release on PR merge via pull_request closed event
+- **ci**: use push trigger for release workflow (#23)
+- **core**: harden error handling and add missing tests
+- **ci**: trigger release on PR merge (#22)
 - **ci**: pin to gradle/actions@v4 to avoid proprietary caching license (#20)
 - **ci**: auto-trigger release from CI after tests pass on main (#19)
 

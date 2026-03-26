@@ -25,10 +25,16 @@ class ClaudeCodeAdapter(
         onOutput: (String) -> Unit
     ): Flow<AgentEvent> = flow {
         val command = buildCommand(instruction)
-        val process = ProcessBuilder(command)
-            .directory(workingDirectory.toFile())
-            .redirectErrorStream(true)
-            .start()
+        val process = try {
+            ProcessBuilder(command)
+                .directory(workingDirectory.toFile())
+                .redirectErrorStream(true)
+                .start()
+        } catch (e: Exception) {
+            emit(AgentEvent.Error("Failed to start process: ${e.message}"))
+            emit(AgentEvent.Completed(exitCode = 2))
+            return@flow
+        }
 
         try {
             process.inputStream.bufferedReader().useLines { lines ->
