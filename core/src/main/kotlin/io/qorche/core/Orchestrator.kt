@@ -28,6 +28,7 @@ class Orchestrator(private val workDir: Path) {
 
     init {
         fileIndex.loadFrom(fileIndexPath)
+        SnapshotCreator.loadIgnoreFile(workDir)
     }
 
     /** Result of a single task execution: agent output, filesystem diff, and snapshots. */
