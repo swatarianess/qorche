@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [Unreleased]
+### Added
+
+- **core**: add @Serializable to result types and return Result from runTask
+
+### Documentation
+
+- remove WORKPLAN.md, backlog tracked in PHASE1_PLAN.md and project memory
+- mark Phase 1, M3, and CLI roadmap as complete
+
+### Testing
+
+- add edge case and serialization round-trip tests (17 tests)
+
+## [0.8.3] - 2026-03-26
+### Fixed
+
+- **ci**: remove pull_request:closed trigger from release workflow (#27)
+
+## [0.8.2] - 2026-03-26
+### Fixed
+
+- **ci**: use semantic-release-action for proper output capture (#26)
+
+## [0.8.1] - 2026-03-26
+### Fixed
+
+- **ci**: add dual trigger for release workflow (#25)
+- **core**: harden error handling and add missing tests (#24)
+
 ## [0.8.0] - 2026-03-26
 ### Added
 
@@ -13,7 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **ci**: use push trigger for release workflow (#23)
-- **core**: harden error handling and add missing tests
 - **ci**: trigger release on PR merge (#22)
 - **ci**: pin to gradle/actions@v4 to avoid proprietary caching license (#20)
 - **ci**: auto-trigger release from CI after tests pass on main (#19)
