@@ -6,6 +6,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 
@@ -26,6 +27,7 @@ class Orchestrator(private val workDir: Path) {
     }
 
     /** Result of a single task execution: agent output, filesystem diff, and snapshots. */
+    @Serializable
     data class RunResult(
         val agentResult: AgentResult,
         val diff: SnapshotDiff,
@@ -39,6 +41,7 @@ class Orchestrator(private val workDir: Path) {
      * Contains per-task outcomes, detected conflicts, scope violations,
      * and summary counters. [success] is true only when zero tasks failed.
      */
+    @Serializable
     data class GraphResult(
         val project: String,
         val taskResults: Map<String, TaskOutcome>,
@@ -62,6 +65,7 @@ class Orchestrator(private val workDir: Path) {
      * @property skipReason Human-readable reason if the task was skipped or failed.
      * @property retryCount Number of retry attempts made due to MVCC conflicts.
      */
+    @Serializable
     data class TaskOutcome(
         val taskId: String,
         val status: TaskStatus,
@@ -73,6 +77,10 @@ class Orchestrator(private val workDir: Path) {
     /**
      * Execute a single task with full snapshot lifecycle and WAL logging.
      * Takes before/after snapshots, runs the agent, computes diff, and persists state.
+     *
+     * Returns [Result.success] with [RunResult] on completion (even if the agent
+     * exited with a non-zero code — check [AgentResult.exitCode]).
+     * Returns [Result.failure] only when the agent threw an exception (crash, timeout, etc.).
      */
     suspend fun runTask(
         taskId: String,
@@ -80,7 +88,7 @@ class Orchestrator(private val workDir: Path) {
         runner: AgentRunner,
         scopePaths: List<String> = emptyList(),
         onOutput: (String) -> Unit = {}
-    ): RunResult {
+    ): Result<RunResult> {
         val beforeSnapshot = if (scopePaths.isNotEmpty()) {
             SnapshotCreator.createScoped(workDir, scopePaths, "before: $taskId", fileIndex = fileIndex)
         } else {
@@ -134,7 +142,12 @@ class Orchestrator(private val workDir: Path) {
             filesModified = filesModified
         )
 
-        if (exitCode == 0) {
+        if (agentException != null) {
+            walWriter.append(WALEntry.TaskFailed(
+                taskId = taskId,
+                error = agentException.message ?: "Unknown error"
+            ))
+        } else if (exitCode == 0) {
             walWriter.append(WALEntry.TaskCompleted(
                 taskId = taskId,
                 snapshotId = afterSnapshot.id,
@@ -150,9 +163,11 @@ class Orchestrator(private val workDir: Path) {
 
         fileIndex.saveTo(fileIndexPath)
 
-        if (agentException != null) throw agentException
-
-        return RunResult(agentResult, diff, beforeSnapshot, afterSnapshot)
+        return if (agentException != null) {
+            Result.failure(agentException)
+        } else {
+            Result.success(RunResult(agentResult, diff, beforeSnapshot, afterSnapshot))
+        }
     }
 
     /**
@@ -191,15 +206,16 @@ class Orchestrator(private val workDir: Path) {
             onTaskStart(def)
             node.status = TaskStatus.RUNNING
 
-            try {
-                val result = runTask(
-                    taskId = taskId,
-                    instruction = def.instruction,
-                    runner = runner,
-                    scopePaths = def.files,
-                    onOutput = onOutput
-                )
+            val taskResult = runTask(
+                taskId = taskId,
+                instruction = def.instruction,
+                runner = runner,
+                scopePaths = def.files,
+                onOutput = onOutput
+            )
 
+            val outcome = if (taskResult.isSuccess) {
+                val result = taskResult.getOrThrow()
                 val success = result.agentResult.exitCode == 0
                 node.status = if (success) TaskStatus.COMPLETED else TaskStatus.FAILED
                 node.beforeSnapshotId = result.beforeSnapshot.id
@@ -208,25 +224,18 @@ class Orchestrator(private val workDir: Path) {
 
                 if (!success) failedTasks.add(taskId)
 
-                val outcome = TaskOutcome(
-                    taskId = taskId,
-                    status = node.status,
-                    runResult = result
-                )
-                outcomes[taskId] = outcome
-                onTaskComplete(taskId, outcome)
-
-            } catch (e: Exception) {
+                TaskOutcome(taskId = taskId, status = node.status, runResult = result)
+            } else {
                 node.status = TaskStatus.FAILED
                 failedTasks.add(taskId)
-                val outcome = TaskOutcome(
+                TaskOutcome(
                     taskId = taskId,
                     status = TaskStatus.FAILED,
-                    skipReason = "Exception: ${e.message}"
+                    skipReason = "Exception: ${taskResult.exceptionOrNull()?.message}"
                 )
-                outcomes[taskId] = outcome
-                onTaskComplete(taskId, outcome)
             }
+            outcomes[taskId] = outcome
+            onTaskComplete(taskId, outcome)
         }
 
         val allNodes = graph.allNodes()
@@ -587,15 +596,16 @@ class Orchestrator(private val workDir: Path) {
         onTaskStart(def)
         node.status = TaskStatus.RUNNING
 
-        return try {
-            val result = runTask(
-                taskId = taskId,
-                instruction = def.instruction,
-                runner = runner,
-                scopePaths = def.files,
-                onOutput = onOutput
-            )
+        val taskResult = runTask(
+            taskId = taskId,
+            instruction = def.instruction,
+            runner = runner,
+            scopePaths = def.files,
+            onOutput = onOutput
+        )
 
+        return if (taskResult.isSuccess) {
+            val result = taskResult.getOrThrow()
             val success = result.agentResult.exitCode == 0
             node.status = if (success) TaskStatus.COMPLETED else TaskStatus.FAILED
             node.beforeSnapshotId = result.beforeSnapshot.id
@@ -603,9 +613,9 @@ class Orchestrator(private val workDir: Path) {
             node.result = result.agentResult
 
             TaskOutcome(taskId = taskId, status = node.status, runResult = result)
-        } catch (e: Exception) {
+        } else {
             node.status = TaskStatus.FAILED
-            TaskOutcome(taskId = taskId, status = TaskStatus.FAILED, skipReason = "Exception: ${e.message}")
+            TaskOutcome(taskId = taskId, status = TaskStatus.FAILED, skipReason = "Exception: ${taskResult.exceptionOrNull()?.message}")
         }
     }
 

@@ -30,7 +30,7 @@ class OrchestratorTest {
                 taskId = "test-task",
                 instruction = "create output",
                 runner = runner
-            )
+            ).getOrThrow()
 
             assertEquals(0, result.agentResult.exitCode)
             assertTrue(result.diff.added.isNotEmpty() || result.diff.modified.isNotEmpty(),
@@ -63,7 +63,7 @@ class OrchestratorTest {
                 taskId = "fail-task",
                 instruction = "this will fail",
                 runner = runner
-            )
+            ).getOrThrow()
 
             assertEquals(1, result.agentResult.exitCode)
 
@@ -84,7 +84,7 @@ class OrchestratorTest {
             val orchestrator = Orchestrator(root)
             val runner = MockAgentRunner(filesToTouch = listOf("src/output.txt"), delayMs = 50)
 
-            orchestrator.runTask("t1", "first run", runner)
+            orchestrator.runTask("t1", "first run", runner).getOrThrow()
 
             // Verify file index was persisted
             assertTrue(root.resolve(".qorche/file-index.json").exists())
@@ -116,7 +116,7 @@ class OrchestratorTest {
                 instruction = "only touch src",
                 runner = runner,
                 scopePaths = listOf("src")
-            )
+            ).getOrThrow()
 
             // Before snapshot should only contain src/ files
             val beforeSnap = orchestrator.loadSnapshot(result.beforeSnapshot.id)!!
@@ -136,7 +136,7 @@ class OrchestratorTest {
             val orchestrator = Orchestrator(root)
             val runner = MockAgentRunner(filesToTouch = listOf("a.txt"), delayMs = 50)
 
-            val result = orchestrator.runTask("t1", "modify a", runner)
+            val result = orchestrator.runTask("t1", "modify a", runner).getOrThrow()
 
             val diff = orchestrator.diffSnapshots(result.beforeSnapshot.id, result.afterSnapshot.id)!!
             assertTrue(diff.modified.contains("a.txt") || diff.added.contains("a.txt"),

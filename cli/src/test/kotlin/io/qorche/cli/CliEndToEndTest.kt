@@ -264,7 +264,7 @@ class CliEndToEndTest {
             )
 
             runBlocking {
-                orchestrator.runTask("test-task", "task a", runner)
+                orchestrator.runTask("test-task", "task a", runner).getOrThrow()
             }
 
             val snapshots = orchestrator.history()

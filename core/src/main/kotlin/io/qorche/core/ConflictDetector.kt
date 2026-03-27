@@ -1,5 +1,7 @@
 package io.qorche.core
 
+import kotlinx.serialization.Serializable
+
 /**
  * Detects write-write conflicts between concurrent agent runs.
  *
@@ -8,11 +10,13 @@ package io.qorche.core
  */
 object ConflictDetector {
 
+    @Serializable
     data class ConflictRetryPolicy(
         val defaultMaxRetries: Int = 1,
         val enabled: Boolean = true
     )
 
+    @Serializable
     data class ConflictReport(
         val conflicts: Set<String>,
         val agentAOnly: Set<String>,
@@ -47,6 +51,7 @@ object ConflictDetector {
     /**
      * Conflict between a specific task and its file set.
      */
+    @Serializable
     data class TaskConflict(
         val taskA: String,
         val taskB: String,
@@ -92,6 +97,7 @@ object ConflictDetector {
      * and which must retry (losers). A task that is a loser in any conflict
      * must retry, even if it won against a different task.
      */
+    @Serializable
     data class ConflictResolution(
         val winners: Set<String>,
         val losers: Set<String>,
@@ -137,6 +143,7 @@ object ConflictDetector {
      * We only know that files outside declared scopes changed — not which task wrote them.
      * [suspectTaskIds] lists all tasks in the group that could be responsible.
      */
+    @Serializable
     data class ScopeViolation(
         val undeclaredFiles: Set<String>,
         val suspectTaskIds: List<String>,
