@@ -5,23 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
-### Added
-
-- **core**: add Orchestrator.clean() API and qorche clean command
-- **core**: add @Serializable to result types and return Result from runTask
-
-### Documentation
-
-- remove WORKPLAN.md, backlog tracked in PHASE1_PLAN.md and project memory
-- mark Phase 1, M3, and CLI roadmap as complete
-
 ### Fixed
 
-- show accurate dev version from git commit distance
+- **core**: add .qorignore support and expand default ignore patterns
 
-### Testing
+### Chore
 
-- add edge case and serialization round-trip tests (17 tests)
+- **core**: serializable API, Result error handling, and tests (#28)
 
 ## [0.8.3] - 2026-03-26
 ### Fixed

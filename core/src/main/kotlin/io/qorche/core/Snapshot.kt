@@ -53,7 +53,64 @@ data class SnapshotDiff(
 /** Factory for creating snapshots and computing diffs between them. */
 object SnapshotCreator {
 
-    private val IGNORED_PREFIXES = listOf(".git/", ".gradle/", ".idea/", ".qorche/", "build/")
+    /** Default ignore prefixes — common VCS, IDE, build, and dependency directories. */
+    val DEFAULT_IGNORE_PREFIXES = listOf(
+        // VCS
+        ".git/", ".svn/", ".hg/",
+        // Build outputs
+        "build/", "dist/", "target/", "out/",
+        // JVM / Gradle / Kotlin
+        ".gradle/", ".kotlin/",
+        // JavaScript / Node
+        "node_modules/", ".next/", ".nuxt/", ".turbo/",
+        // Python
+        ".venv/", "venv/", "__pycache__/", ".mypy_cache/", ".ruff_cache/",
+        // IDE
+        ".idea/", ".vscode/", ".vs/", ".fleet/",
+        // Qorche
+        ".qorche/",
+        // OS artifacts
+        ".DS_Store",
+        "Thumbs.db"
+    )
+
+    private var ignorePrefixes: List<String> = DEFAULT_IGNORE_PREFIXES
+
+    /**
+     * Load ignore patterns from a `.qorignore` file in the given directory.
+     *
+     * The file uses a simple line-based format:
+     * - Each line is a path prefix to ignore (e.g. `node_modules/`, `vendor/`)
+     * - Lines starting with `#` are comments
+     * - Blank lines are skipped
+     * - If the file starts with `!reset`, default patterns are cleared and only
+     *   the file's patterns are used. Otherwise patterns are added to defaults.
+     */
+    fun loadIgnoreFile(directory: Path) {
+        val ignoreFile = directory.resolve(".qorignore")
+        if (!Files.exists(ignoreFile)) {
+            ignorePrefixes = DEFAULT_IGNORE_PREFIXES
+            return
+        }
+
+        val lines = Files.readAllLines(ignoreFile)
+            .map { it.trim() }
+            .filter { it.isNotBlank() && !it.startsWith("#") }
+
+        val resetDefaults = lines.firstOrNull() == "!reset"
+        val patterns = if (resetDefaults) lines.drop(1) else lines
+
+        ignorePrefixes = if (resetDefaults) {
+            patterns
+        } else {
+            (DEFAULT_IGNORE_PREFIXES + patterns).distinct()
+        }
+    }
+
+    /** Reset ignore patterns to defaults (useful for testing). */
+    fun resetIgnorePatterns() {
+        ignorePrefixes = DEFAULT_IGNORE_PREFIXES
+    }
 
     /**
      * Create a full-repo snapshot — walks the entire directory tree.
@@ -159,8 +216,11 @@ object SnapshotCreator {
         }.awaitAll().flatten().toMap()
     }
 
-    private fun isIgnored(relativePath: String): Boolean =
-        IGNORED_PREFIXES.any { relativePath.startsWith(it) }
+    internal fun isIgnored(relativePath: String): Boolean =
+        ignorePrefixes.any { prefix ->
+            if (prefix.endsWith("/")) relativePath.startsWith(prefix)
+            else relativePath == prefix || relativePath.startsWith("$prefix/")
+        }
 }
 
 /**
