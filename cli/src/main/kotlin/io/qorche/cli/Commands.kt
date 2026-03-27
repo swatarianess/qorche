@@ -27,7 +27,7 @@ class QorcheCommand : CliktCommand(name = "qorche") {
     override fun run() = Unit
 
     init {
-        subcommands(RunCommand(), PlanCommand(), StatusCommand(), LogsCommand(), HistoryCommand(), DiffCommand(), VersionCommand())
+        subcommands(RunCommand(), PlanCommand(), StatusCommand(), LogsCommand(), HistoryCommand(), DiffCommand(), CleanCommand(), VersionCommand())
     }
 }
 

@@ -7,8 +7,12 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
+import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.readText
 
 /**
  * Coordinates agent execution with snapshot lifecycle and WAL logging.
@@ -765,4 +769,114 @@ class Orchestrator(private val workDir: Path) {
     }
 
     fun walEntries(): List<WALEntry> = walWriter.readAll()
+
+    /**
+     * Summary of what was removed by a [clean] operation.
+     */
+    @Serializable
+    data class CleanResult(
+        val snapshotsRemoved: Int = 0,
+        val snapshotsKept: Int = 0,
+        val logsRemoved: Int = 0,
+        val walCleared: Boolean = false,
+        val fileIndexCleared: Boolean = false
+    ) {
+        val totalRemoved: Int get() = snapshotsRemoved + logsRemoved + (if (walCleared) 1 else 0) + (if (fileIndexCleared) 1 else 0)
+    }
+
+    /**
+     * Remove stored data from the `.qorche/` directory.
+     *
+     * By default removes everything. Use flags to selectively clean specific data.
+     * Use [keepLastSnapshots] to retain the N most recent snapshots (by timestamp)
+     * for historical reference.
+     *
+     * @param snapshots Remove snapshot files from `.qorche/snapshots/`
+     * @param logs Remove task log files from `.qorche/logs/`
+     * @param wal Clear the write-ahead log (`.qorche/wal.jsonl`)
+     * @param fileIndexCache Clear the file hash cache (`.qorche/file-index.json`)
+     * @param keepLastSnapshots When cleaning snapshots, retain the N most recent. 0 = remove all.
+     */
+    fun clean(
+        snapshots: Boolean = true,
+        logs: Boolean = true,
+        wal: Boolean = true,
+        fileIndexCache: Boolean = true,
+        keepLastSnapshots: Int = 0
+    ): CleanResult {
+        var snapshotsRemoved = 0
+        var snapshotsKept = 0
+        var logsRemoved = 0
+        var walCleared = false
+        var fileIndexCleared = false
+
+        if (snapshots) {
+            val snapshotsDir = qorcheDir.resolve("snapshots")
+            if (snapshotsDir.exists()) {
+                val files = snapshotsDir.listDirectoryEntries("*.json")
+                if (keepLastSnapshots > 0 && files.size > keepLastSnapshots) {
+                    val sorted = files
+                        .mapNotNull { file ->
+                            try {
+                                val snap = Json.decodeFromString<Snapshot>(file.readText())
+                                snap.timestamp to file
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
+                        .sortedByDescending { it.first }
+
+                    val toKeep = sorted.take(keepLastSnapshots).map { it.second }.toSet()
+                    for ((_, file) in sorted) {
+                        if (file in toKeep) {
+                            snapshotsKept++
+                        } else {
+                            java.nio.file.Files.deleteIfExists(file)
+                            snapshotsRemoved++
+                        }
+                    }
+                } else if (keepLastSnapshots <= 0) {
+                    for (file in files) {
+                        java.nio.file.Files.deleteIfExists(file)
+                        snapshotsRemoved++
+                    }
+                } else {
+                    snapshotsKept = files.size
+                }
+            }
+        }
+
+        if (logs) {
+            if (logsDir.exists()) {
+                for (file in logsDir.listDirectoryEntries("*.log")) {
+                    java.nio.file.Files.deleteIfExists(file)
+                    logsRemoved++
+                }
+            }
+        }
+
+        if (wal) {
+            val walFile = qorcheDir.resolve("wal.jsonl")
+            if (walFile.exists()) {
+                java.nio.file.Files.writeString(walFile, "")
+                walCleared = true
+            }
+        }
+
+        if (fileIndexCache) {
+            if (fileIndexPath.exists()) {
+                java.nio.file.Files.deleteIfExists(fileIndexPath)
+                fileIndex.clear()
+                fileIndexCleared = true
+            }
+        }
+
+        return CleanResult(
+            snapshotsRemoved = snapshotsRemoved,
+            snapshotsKept = snapshotsKept,
+            logsRemoved = logsRemoved,
+            walCleared = walCleared,
+            fileIndexCleared = fileIndexCleared
+        )
+    }
 }
