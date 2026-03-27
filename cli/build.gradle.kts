@@ -20,6 +20,7 @@ dependencies {
 tasks.register("generateVersionFile") {
     val outputDir = layout.buildDirectory.dir("generated/version")
     outputs.dir(outputDir)
+    outputs.upToDateWhen { false }
     doLast {
         val dir = outputDir.get().asFile.resolve("io/qorche/cli")
         dir.mkdirs()

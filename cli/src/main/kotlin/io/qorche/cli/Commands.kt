@@ -27,7 +27,7 @@ class QorcheCommand : CliktCommand(name = "qorche") {
     override fun run() = Unit
 
     init {
-        subcommands(RunCommand(), PlanCommand(), StatusCommand(), LogsCommand(), HistoryCommand(), DiffCommand(), VersionCommand())
+        subcommands(RunCommand(), PlanCommand(), StatusCommand(), LogsCommand(), HistoryCommand(), DiffCommand(), CleanCommand(), VersionCommand())
     }
 }
 
@@ -59,7 +59,7 @@ class RunCommand : CliktCommand(name = "run") {
         if (output == "text") echo("Starting: $instructionOrFile")
 
         runBlocking {
-            val result = orchestrator.runTask(
+            val taskResult = orchestrator.runTask(
                 taskId = "cli-run",
                 instruction = instructionOrFile,
                 runner = runner
@@ -68,6 +68,13 @@ class RunCommand : CliktCommand(name = "run") {
             }
 
             val elapsed = System.currentTimeMillis() - startTime
+
+            if (taskResult.isFailure) {
+                echo("Error: ${taskResult.exceptionOrNull()?.message}", err = true)
+                exitProcess(1)
+            }
+
+            val result = taskResult.getOrThrow()
 
             if (output == "json") {
                 val graphResult = Orchestrator.GraphResult(

@@ -1,5 +1,9 @@
 # Qorche — Phase 1 Planning Document
 
+> **STATUS: COMPLETE** — All Phase 1 milestones (M0, M1, M2) are done.
+> Parallel execution + MVCC conflict detection (originally M3/Phase 2) is also implemented.
+> This document is retained as architectural reference only.
+
 **Project:** Qorche (qorche.io)
 **Package:** io.qorche
 **License:** Apache 2.0
@@ -265,7 +269,7 @@ qorche/
 
 ---
 
-## M0: Project scaffold + single agent runner (~2 weeks)
+## M0: Project scaffold + single agent runner — COMPLETE
 
 ### Goal
 Run `qorche run "refactor the auth module"` and have it delegate to
@@ -315,7 +319,7 @@ Claude Code, stream output, and report completion.
 
 ---
 
-## M1: File snapshot system (~2 weeks)
+## M1: File snapshot system — COMPLETE
 
 ### Goal
 Snapshot the working directory before/after each agent run.
@@ -368,7 +372,7 @@ data class SnapshotDiff(
 
 ---
 
-## M2: Task graph + dependency model (~3 weeks)
+## M2: Task graph + dependency model — COMPLETE
 
 ### Goal
 Accept a list of tasks with dependencies, build a DAG,
@@ -415,26 +419,26 @@ The `plan` output showing parallelisable groups is the bridge to Phase 2.
 
 ---
 
-## GraalVM compatibility checklist
+## GraalVM compatibility checklist — COMPLETE
 
-- [ ] No runtime reflection (kotlinx.serialization only)
-- [ ] No dynamic class loading
-- [ ] No java.io.Serializable
-- [ ] Register JNI for sqlite-jdbc
-- [ ] Monthly `./gradlew nativeCompile` test
-- [ ] Minimal dependencies
-- [ ] Verify kaml GraalVM compatibility early
+- [x] No runtime reflection (kotlinx.serialization only)
+- [x] No dynamic class loading
+- [x] No java.io.Serializable
+- [x] No SQLite (removed — JSON file persistence only)
+- [x] Native compilation working (20MB binary with UPX)
+- [x] Minimal dependencies
+- [x] kaml GraalVM compatibility verified
 
 ---
 
 ## Phase 2+ preview (informs Phase 1 design)
 
-- M3: Parallel execution + MVCC conflict detection (~4 weeks)
-- M4: Context bus + agent awareness (~3 weeks)
-- M5: WAL + verification pipeline (~3 weeks)
-- M6: Observability dashboard (~2 weeks)
-- M7: Multi-agent adapters (Claude Code, Codex, Gemini, Junie) (~3 weeks)
-- M8: ACP + editor integration (~3 weeks)
+- M3: Parallel execution + MVCC conflict detection — **COMPLETE** (implemented during Phase 1)
+- M4: Context bus + agent awareness
+- M5: WAL + verification pipeline — **partially complete** (WAL done, verification TBD)
+- M6: Observability dashboard
+- M7: Multi-agent adapters (Claude Code, Codex, Gemini, Junie)
+- M8: ACP + editor integration
 - 1.0.0-beta: ~25 weeks from M0
 
 ---

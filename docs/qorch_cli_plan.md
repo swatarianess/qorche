@@ -1,5 +1,10 @@
 # Qorche CLI Roadmap — Ship-Ready Developer Experience
 
+> **STATUS:** P0, P1a, P1b, P2a, and P4 are **COMPLETE**.
+> P2b (Homebrew), P2c (npm), P3a (init), P3b (templates) are **deferred** —
+> qorche is positioned as an infrastructure layer, not an end-user CLI product.
+> The CLI serves as a reference implementation. See WORKPLAN.md for current priorities.
+
 ## Dependency Graph
 
 ```
