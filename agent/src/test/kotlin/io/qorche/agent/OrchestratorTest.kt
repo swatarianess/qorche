@@ -145,4 +145,75 @@ class OrchestratorTest {
             root.toFile().deleteRecursively()
         }
     }
+
+    @Test
+    fun `task outcome includes elapsed time`() = runBlocking {
+        val root = Files.createTempDirectory("qorche-elapsed-test")
+        try {
+            root.resolve("src").createDirectories()
+            root.resolve("src/main.kt").writeText("fun main() {}")
+
+            val yaml = """
+                project: elapsed-test
+                tasks:
+                  - id: task-a
+                    instruction: "First task"
+                  - id: task-b
+                    instruction: "Second task"
+                    depends_on: [task-a]
+            """.trimIndent()
+
+            val graph = io.qorche.core.TaskYamlParser.parseToGraph(yaml)
+            val orchestrator = Orchestrator(root)
+            val runner = MockAgentRunner(delayMs = 50)
+
+            val result = orchestrator.runGraph(
+                project = "elapsed-test",
+                graph = graph,
+                runner = runner
+            )
+
+            assertTrue(result.success)
+            for ((taskId, outcome) in result.taskResults) {
+                assertTrue(outcome.elapsedMs > 0, "Task $taskId should have elapsed time > 0, got ${outcome.elapsedMs}")
+            }
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `skipped tasks have zero elapsed time`() = runBlocking {
+        val root = Files.createTempDirectory("qorche-elapsed-test")
+        try {
+            root.resolve("src").createDirectories()
+            root.resolve("src/main.kt").writeText("fun main() {}")
+
+            val yaml = """
+                project: skip-test
+                tasks:
+                  - id: will-fail
+                    instruction: "This will fail"
+                  - id: will-skip
+                    instruction: "This depends on failure"
+                    depends_on: [will-fail]
+            """.trimIndent()
+
+            val graph = io.qorche.core.TaskYamlParser.parseToGraph(yaml)
+            val orchestrator = Orchestrator(root)
+            val runner = MockAgentRunner(delayMs = 10, shouldFail = true)
+
+            val result = orchestrator.runGraph(
+                project = "skip-test",
+                graph = graph,
+                runner = runner
+            )
+
+            val skipped = result.taskResults["will-skip"]!!
+            assertEquals(io.qorche.core.TaskStatus.SKIPPED, skipped.status)
+            assertEquals(0, skipped.elapsedMs)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
 }

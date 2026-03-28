@@ -432,6 +432,70 @@ class SnapshotTest {
         }
     }
 
+    // ── Progress callback tests ────────────────────────────────
+
+    @Test
+    fun `progress callback fires during full snapshot`() = runBlocking {
+        val root = Files.createTempDirectory("qorche-progress-test")
+        try {
+            for (i in 1..10) {
+                root.resolve("file$i.txt").writeText("content $i\n")
+            }
+
+            val events = mutableListOf<SnapshotProgress>()
+            SnapshotCreator.create(root, "test") { progress ->
+                events.add(progress)
+            }
+
+            val scanning = events.filter { it.phase == "scanning" }
+            val hashing = events.filter { it.phase == "hashing" }
+
+            assertEquals(1, scanning.size)
+            assertEquals(10, scanning[0].total)
+            assertTrue(hashing.isNotEmpty(), "Should have hashing progress events")
+            assertEquals(10, hashing.last().total)
+            assertEquals(10, hashing.last().current)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `progress callback fires during scoped snapshot`() = runBlocking {
+        val root = Files.createTempDirectory("qorche-progress-test")
+        try {
+            root.resolve("src").createDirectories()
+            for (i in 1..5) {
+                root.resolve("src/file$i.txt").writeText("content $i\n")
+            }
+            root.resolve("other.txt").writeText("other\n")
+
+            val events = mutableListOf<SnapshotProgress>()
+            SnapshotCreator.createScoped(root, listOf("src"), "test") { progress ->
+                events.add(progress)
+            }
+
+            val scanning = events.filter { it.phase == "scanning" }
+            assertEquals(1, scanning.size)
+            assertEquals(5, scanning[0].total)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `progress callback is optional`() = runBlocking {
+        val root = Files.createTempDirectory("qorche-progress-test")
+        try {
+            root.resolve("a.txt").writeText("content\n")
+            // Should not throw when no callback provided
+            val snapshot = SnapshotCreator.create(root, "test")
+            assertEquals(1, snapshot.fileHashes.size)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun `diff summary with no changes`() = runBlocking {
         val root = Files.createTempDirectory("qorche-snap-test")

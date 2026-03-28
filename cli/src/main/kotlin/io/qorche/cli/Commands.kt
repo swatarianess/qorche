@@ -21,7 +21,7 @@ import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
 import kotlin.system.exitProcess
 
-private fun formatElapsed(ms: Long): String = when {
+internal fun formatElapsed(ms: Long): String = when {
     ms >= 1000 -> "%.1fs".format(ms / 1000.0)
     else -> "${ms}ms"
 }

@@ -215,6 +215,7 @@ class Orchestrator(private val workDir: Path) {
             onTaskStart(def)
             node.status = TaskStatus.RUNNING
 
+            val startNanos = System.nanoTime()
             val taskResult = runTask(
                 taskId = taskId,
                 instruction = def.instruction,
@@ -222,6 +223,7 @@ class Orchestrator(private val workDir: Path) {
                 scopePaths = def.files,
                 onOutput = onOutput
             )
+            val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000
 
             val outcome = if (taskResult.isSuccess) {
                 val result = taskResult.getOrThrow()
@@ -233,14 +235,15 @@ class Orchestrator(private val workDir: Path) {
 
                 if (!success) failedTasks.add(taskId)
 
-                TaskOutcome(taskId = taskId, status = node.status, runResult = result)
+                TaskOutcome(taskId = taskId, status = node.status, runResult = result, elapsedMs = elapsedMs)
             } else {
                 node.status = TaskStatus.FAILED
                 failedTasks.add(taskId)
                 TaskOutcome(
                     taskId = taskId,
                     status = TaskStatus.FAILED,
-                    skipReason = "Exception: ${taskResult.exceptionOrNull()?.message}"
+                    skipReason = "Exception: ${taskResult.exceptionOrNull()?.message}",
+                    elapsedMs = elapsedMs
                 )
             }
             outcomes[taskId] = outcome
