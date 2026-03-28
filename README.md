@@ -115,7 +115,7 @@ Total time: 47230ms
 
 1. **Define** tasks in YAML with dependencies and (optional) file scopes
 2. **Plan** with `qorche plan tasks.yaml` to see execution order, parallel groups, and scope overlap warnings
-3. **Execute** with `qorche run tasks.yaml`. Parallel groups run concurrently, SHA-256 snapshots taken before/after each task
+3. **Execute** with `qorche run tasks.yaml`. Parallel groups run concurrently, snapshots taken before/after each task
 4. **Detect** write-write conflicts via snapshot diff after each group completes. Conflicting tasks fail, dependents skip
 5. **Retry** losers automatically against updated filesystem state (configurable via `max_retries`)
 6. **Audit** scope violations when workers write outside their declared file scope
@@ -143,7 +143,9 @@ Benchmarked on a standard dev machine (Windows, JDK 21, `-Xmx64m`). Step duratio
 | 5,000  | 211ms        | 0.8ms              | 423ms             |
 | 20,000 | 824ms        | 2.5ms              | 1,650ms           |
 
-**Where's the overhead?** Snapshot hashing (SHA-256 over every file). It scales with file count, not agent count. For a 1,000-file repo, the overhead is ~82ms per step. For real-world agent tasks that take 30-120 seconds, that's under 0.3%.
+**Where's the overhead?** Snapshot hashing over every file. It scales with file count, not agent count. For a 1,000-file repo, the overhead is ~82ms per step. For real-world agent tasks that take 30-120 seconds, that's under 0.3%.
+
+**Hash algorithm is configurable.** SHA-1 is the default (same algorithm Git uses, fast, no collision risk for change detection). CRC32C is available for maximum speed (hardware-accelerated, ~20 GB/s). SHA-256 is available when cryptographic guarantees are needed. Set via `--hash crc32c|sha1|sha256`.
 
 ### Scaling to large repos
 
@@ -175,7 +177,7 @@ Full benchmark suite: `./gradlew :agent:benchmark`
 
 ## Design principles
 
-**Agents are untrusted.** Qorche never relies on workers to report what files they modified. Instead, it takes SHA-256 snapshots of the filesystem before and after each task. This catches all side effects, expected or not, regardless of whether the worker reports them.
+**Agents are untrusted.** Qorche never relies on workers to report what files they modified. Instead, it takes snapshots of the filesystem before and after each task. This catches all side effects, expected or not, regardless of whether the worker reports them.
 
 **Snapshots are ground truth.** Conflict detection compares snapshot hashes, not event streams. This makes Qorche work with any worker type: LLM agents that don't report file changes, shell scripts, build tools, or anything else that modifies files.
 
