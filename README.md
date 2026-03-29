@@ -38,7 +38,8 @@ qorche run tasks.yaml
 ./gradlew test               # Run tests
 ./gradlew :cli:run --args="plan tasks.yaml"   # Dry-run
 ./gradlew :cli:run --args="run tasks.yaml"    # Execute
-./gradlew :cli:nativeCompile  # Build native binary (requires GraalVM)
+./gradlew :cli:nativeCompile     # Build native binary (requires GraalVM)
+./gradlew :native:nativeCompile  # Build shared library (libqorche.dll/.so/.dylib)
 ```
 
 ## Task definition (YAML)
@@ -190,6 +191,7 @@ qorche/
 ├── core/       # Orchestrator, snapshots, MVCC, DAG, WAL (zero domain-specific deps)
 ├── agent/      # Runner implementations (MockAgentRunner, ShellRunner, ClaudeCodeAdapter)
 ├── cli/        # CLI entry point via Clikt (run, plan, history, diff, status, logs, clean)
+├── native/     # Shared library (libqorche) via GraalVM --shared, C FFI entry points
 └── docs/       # Phase plan and architecture docs
 ```
 

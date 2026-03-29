@@ -1,3 +1,3 @@
 rootProject.name = "qorche"
 
-include("core", "agent", "cli")
+include("core", "agent", "cli", "native")
