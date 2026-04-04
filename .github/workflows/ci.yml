@@ -20,6 +20,10 @@ on:
       - 'gradlew.bat'
       - '.github/workflows/ci.yml'
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   issues: write
