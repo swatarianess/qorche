@@ -12,6 +12,7 @@ import com.github.ajalt.clikt.parameters.types.int
 import io.qorche.agent.ClaudeCodeAdapter
 import io.qorche.agent.RunnerRegistry
 import io.qorche.core.CycleDetectedException
+import io.qorche.core.ExitCode
 import io.qorche.core.HashAlgorithm
 import io.qorche.core.Orchestrator
 import io.qorche.core.SnapshotCreator
@@ -116,7 +117,7 @@ class RunCommand : CliktCommand(name = "run") {
 
             if (taskResult.isFailure) {
                 echo("Error: ${taskResult.exceptionOrNull()?.message}", err = true)
-                exitProcess(1)
+                exitProcess(ExitCode.TASK_FAILURE.code)
             }
 
             val result = taskResult.getOrThrow()
@@ -149,7 +150,7 @@ class RunCommand : CliktCommand(name = "run") {
                 echo("Completed (exit ${result.agentResult.exitCode}) in ${elapsed}ms")
             }
 
-            if (result.agentResult.exitCode != 0) exitProcess(1)
+            if (result.agentResult.exitCode != 0) exitProcess(ExitCode.TASK_FAILURE.code)
         }
     }
 
@@ -164,13 +165,13 @@ class RunCommand : CliktCommand(name = "run") {
             TaskYamlParser.parseFileToGraph(filePath)
         } catch (e: TaskParseException) {
             echo("Error: ${e.message}", err = true)
-            exitProcess(2)
+            exitProcess(ExitCode.CONFIG_ERROR.code)
         } catch (e: CycleDetectedException) {
             echo("Error: ${e.message}", err = true)
-            exitProcess(2)
+            exitProcess(ExitCode.CONFIG_ERROR.code)
         } catch (e: IllegalArgumentException) {
             echo("Error: ${e.message}", err = true)
-            exitProcess(2)
+            exitProcess(ExitCode.CONFIG_ERROR.code)
         }
 
         val runners = buildRunnerRegistry(project.runners)
@@ -235,7 +236,13 @@ class RunCommand : CliktCommand(name = "run") {
                 echo("Total time: ${elapsed}ms")
             }
 
-            if (!result.success) exitProcess(1)
+            if (!result.success) {
+                if (result.hasConflicts) {
+                    exitProcess(ExitCode.CONFLICT.code)
+                } else {
+                    exitProcess(ExitCode.TASK_FAILURE.code)
+                }
+            }
         }
     }
 
@@ -245,7 +252,7 @@ class RunCommand : CliktCommand(name = "run") {
         RunnerRegistry.build(configs)
     } catch (e: IllegalArgumentException) {
         echo("Error: ${e.message}", err = true)
-        exitProcess(2)
+        exitProcess(ExitCode.CONFIG_ERROR.code)
     }
 }
 
@@ -263,13 +270,13 @@ class PlanCommand : CliktCommand(name = "plan") {
             TaskYamlParser.parseFileToGraph(filePath)
         } catch (e: TaskParseException) {
             echo("Error: ${e.message}", err = true)
-            exitProcess(2)
+            exitProcess(ExitCode.CONFIG_ERROR.code)
         } catch (e: CycleDetectedException) {
             echo("Error: ${e.message}", err = true)
-            exitProcess(2)
+            exitProcess(ExitCode.CONFIG_ERROR.code)
         } catch (e: IllegalArgumentException) {
             echo("Error: ${e.message}", err = true)
-            exitProcess(2)
+            exitProcess(ExitCode.CONFIG_ERROR.code)
         }
 
         if (output == "json") {

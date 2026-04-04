@@ -42,7 +42,7 @@ All terminal formatting goes through this class for testability:
 
 ## CLI design principles
 - No interactive prompts in Phase 1 — all input via arguments and files
-- Exit codes: 0 = success, 1 = agent failure, 2 = orchestrator error
+- Exit codes defined in core/ExitCode: 0 = success, 1 = task failure, 2 = config error, 3 = conflict
 - Stream agent output in real-time — don't buffer until completion
 - Show elapsed time for each task and total execution
 - `plan` command is critical — users should always preview before running
