@@ -67,6 +67,15 @@ subprojects {
     apply(plugin = "io.gitlab.arturbosch.detekt")
     apply(plugin = "org.jetbrains.dokka")
 
+    val moduleDoc = file("Module.md")
+    if (moduleDoc.exists()) {
+        configure<org.jetbrains.dokka.gradle.DokkaExtension> {
+            dokkaSourceSets.configureEach {
+                includes.from(moduleDoc)
+            }
+        }
+    }
+
     configure<org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension> {
         jvmToolchain(21)
     }
