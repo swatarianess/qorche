@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qorche.dev/schema/tasks.json",
+  "title": "Qorche Task Definition",
+  "description": "Defines a project with a DAG of tasks for concurrent filesystem orchestration. Qorche coordinates parallel workers with MVCC-inspired conflict detection.",
+  "type": "object",
+  "required": ["project", "tasks"],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "Project name. Used in snapshots, WAL entries, and output.",
+      "examples": ["auth-refactor", "my-project"]
+    },
+    "runners": {
+      "type": "object",
+      "description": "Named runner configurations. Each key is a runner name that tasks can reference via the 'runner' field. When omitted, all tasks use the default CLI runner.",
+      "additionalProperties": {
+        "$ref": "#/$defs/runner_config"
+      },
+      "examples": [
+        {
+          "claude": {
+            "type": "claude-code",
+            "extra_args": ["--dangerously-skip-permissions"]
+          },
+          "shell": {
+            "type": "shell",
+            "allowed_commands": ["npm", "gradle", "pytest"]
+          }
+        }
+      ]
+    },
+    "tasks": {
+      "type": "array",
+      "description": "Ordered list of task definitions forming a DAG. Tasks execute in dependency order, with independent tasks running in parallel.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/task"
+      }
+    }
+  },
+  "$defs": {
+    "runner_config": {
+      "type": "object",
+      "description": "Configuration for a named runner.",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Runner type identifier. Determines which AgentRunner implementation is used.",
+          "examples": ["claude-code", "shell"]
+        },
+        "model": {
+          "type": "string",
+          "description": "Model name for LLM-backed runners (e.g. 'qwen2.5-coder:7b').",
+          "examples": ["qwen2.5-coder:7b", "claude-sonnet-4-20250514"]
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Service endpoint URL (e.g. for Ollama or remote runners).",
+          "format": "uri",
+          "examples": ["http://localhost:11434"]
+        },
+        "extra_args": {
+          "type": "array",
+          "description": "Additional command-line arguments passed to the runner process.",
+          "items": { "type": "string" },
+          "default": [],
+          "examples": [["--dangerously-skip-permissions"]]
+        },
+        "allowed_commands": {
+          "type": "array",
+          "description": "Permitted executables for shell runners. Required when type is 'shell'.",
+          "items": { "type": "string" },
+          "default": [],
+          "examples": [["npm", "gradle", "pytest"]]
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Maximum execution time in seconds per task invocation.",
+          "default": 300,
+          "minimum": 1
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "description": "A single task in the execution DAG.",
+      "required": ["id", "instruction"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier within the project. Used as the DAG node key and in log filenames.",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$",
+          "examples": ["explore", "backend", "run-tests"]
+        },
+        "instruction": {
+          "type": "string",
+          "description": "Free-text instruction passed to the runner. For shell runners, this is the command to execute.",
+          "examples": [
+            "Refactor the auth module to use JWT tokens",
+            "pytest src/ --tb=short"
+          ]
+        },
+        "type": {
+          "type": "string",
+          "description": "Classification of work. Used for reporting and future scheduling heuristics.",
+          "enum": ["explore", "implement", "verify", "test"],
+          "default": "implement"
+        },
+        "depends_on": {
+          "type": "array",
+          "description": "IDs of tasks that must complete successfully before this task starts. Forms the DAG edges.",
+          "items": { "type": "string" },
+          "default": [],
+          "examples": [["explore"], ["backend", "frontend"]]
+        },
+        "files": {
+          "type": "array",
+          "description": "Declared file scope - paths this task is expected to modify. Used for scoped snapshots and scope-violation auditing. Supports files and directories.",
+          "items": { "type": "string" },
+          "default": [],
+          "examples": [["src/auth/login.ts", "src/auth/types.ts"], ["src/", "tests/"]]
+        },
+        "max_retries": {
+          "type": "integer",
+          "description": "Maximum retry attempts when this task loses an MVCC conflict. 0 means no retries.",
+          "default": 0,
+          "minimum": 0
+        },
+        "runner": {
+          "type": "string",
+          "description": "Name of the runner to use for this task, referencing a key in the top-level 'runners' map. When omitted, the default CLI runner is used.",
+          "examples": ["claude", "shell", "ollama"]
+        }
+      }
+    }
+  }
+}

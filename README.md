@@ -299,9 +299,24 @@ print(f"Project: {data['project']}, Tasks: {data['task_count']}")
 | `history`  | List past snapshots                                                        |
 | `diff`     | Show file changes between two snapshots                                    |
 | `clean`    | Remove stored data from .qorche/                                           |
+| `schema`   | Print JSON Schema for tasks.yaml (editor autocomplete and validation)      |
 | `version`  | Print version                                                              |
 
 JSON output available via `--output json` on `run` and `plan` commands.
+
+### Editor integration
+
+Use `qorche schema` to get autocomplete and validation in your editor:
+
+```bash
+# Add modeline to your tasks.yaml
+# yaml-language-server: $schema=https://qorche.dev/schema/tasks.json
+
+# Or export locally for offline use
+qorche schema --output .qorche/tasks.schema.json
+```
+
+Supports VS Code (Red Hat YAML), IntelliJ (native), and nvim (yaml-language-server).
 
 ## Project structure
 
@@ -309,7 +324,7 @@ JSON output available via `--output json` on `run` and `plan` commands.
 qorche/
 ├── core/       # Orchestrator, snapshots, MVCC, DAG, WAL (zero domain-specific deps)
 ├── agent/      # Runner implementations (MockAgentRunner, ShellRunner, ClaudeCodeAdapter)
-├── cli/        # CLI entry point via Clikt (run, plan, init, validate, status, logs, diff, clean)
+├── cli/        # CLI entry point via Clikt (run, plan, init, validate, status, logs, diff, clean, schema)
 └── native/     # Shared library (libqorche) via GraalVM --shared, C FFI entry points
 ```
 

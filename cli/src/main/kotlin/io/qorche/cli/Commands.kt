@@ -42,7 +42,11 @@ class QorcheCommand : CliktCommand(name = "qorche") {
 
     init {
         completionOption()
-        subcommands(InitCommand(), RunCommand(), PlanCommand(), ValidateCommand(), StatusCommand(), LogsCommand(), HistoryCommand(), DiffCommand(), CleanCommand(), VersionCommand())
+        subcommands(
+            InitCommand(), RunCommand(), PlanCommand(), ValidateCommand(),
+            StatusCommand(), LogsCommand(), HistoryCommand(), DiffCommand(),
+            CleanCommand(), SchemaCommand(), VersionCommand()
+        )
     }
 }
 
@@ -369,6 +373,27 @@ class DiffCommand : CliktCommand(name = "diff") {
         for (f in diff.added.sorted()) echo("  + $f")
         for (f in diff.modified.sorted()) echo("  ~ $f")
         for (f in diff.deleted.sorted()) echo("  - $f")
+    }
+}
+
+class SchemaCommand : CliktCommand(name = "schema") {
+    override fun help(context: com.github.ajalt.clikt.core.Context) =
+        "Print the JSON Schema for tasks.yaml (for editor autocomplete and validation)"
+
+    private val output by option("--output", "-o", help = "Write schema to a file instead of stdout")
+
+    override fun run() {
+        val schema = javaClass.getResourceAsStream("/io/qorche/cli/tasks.schema.json")
+            ?.bufferedReader()?.readText()
+            ?: error("Schema resource not found")
+
+        if (output != null) {
+            val path = java.nio.file.Path.of(output!!)
+            path.toFile().writeText(schema)
+            echo("Schema written to $output")
+        } else {
+            echo(schema)
+        }
     }
 }
 

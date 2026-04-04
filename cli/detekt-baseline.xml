@@ -7,7 +7,6 @@
     <ID>LongMethod:InitCommand.kt$internal fun generateTasksYaml(type: ProjectType, workDir: Path): String</ID>
     <ID>LoopWithTooManyJumpStatements:JsonOutput.kt$for</ID>
     <ID>MaxLineLength:Commands.kt$QorcheCommand$override fun help(context: com.github.ajalt.clikt.core.Context)</ID>
-    <ID>MaxLineLength:Commands.kt$QorcheCommand$subcommands(InitCommand(), RunCommand(), PlanCommand(), ValidateCommand(), StatusCommand(), LogsCommand(), HistoryCommand(), DiffCommand(), CleanCommand(), VersionCommand())</ID>
     <ID>MaxLineLength:Commands.kt$RunCommand$"hashing" -&gt; echo("\r${Terminal.dim("Hashing ${progress.current}/${progress.total} files...")}", trailingNewline = false)</ID>
     <ID>MaxLineLength:Commands.kt$RunCommand$TaskStatus.FAILED -&gt; echo("${Terminal.red("[${taskId}]")} FAILED: ${outcome.skipReason ?: "non-zero exit"} ${Terminal.dim("(${formatElapsed(outcome.elapsedMs)})")}")</ID>
     <ID>MaxLineLength:Commands.kt$RunCommand$echo("${Terminal.red("[CONFLICT]")} ${conflict.taskA} &lt;-&gt; ${conflict.taskB}: ${conflict.conflictingFiles.joinToString(", ")}")</ID>
