@@ -1,0 +1,20 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>LargeClass:ParallelExecutionTest.kt$ParallelExecutionTest</ID>
+    <ID>LongMethod:BenchmarkTest.kt$BenchmarkTest$@Test fun `dag propagation overhead at scale`()</ID>
+    <ID>MaxLineLength:BenchmarkTest.kt$BenchmarkTest$println(" Correct: ${report.hasConflicts &amp;&amp; "src/file_1.txt" in report.conflicts &amp;&amp; "test/file_2.txt" !in report.conflicts}")</ID>
+    <ID>MaxLineLength:BenchmarkTest.kt$BenchmarkTest$val mvccOverhead = parTotalMs - (System.currentTimeMillis() - mvccStart - (System.currentTimeMillis() - parTotalStart - parTotalMs).coerceAtLeast(0))</ID>
+    <ID>MaxLineLength:ParallelExecutionTest.kt$ParallelExecutionTest.RealProcessRunner$"java.nio.file.Files.writeString(java.nio.file.Path.of(\"${file.toString().replace("\\", "\\\\")}\"), \"Written by $instruction at \" + System.nanoTime());"</ID>
+    <ID>TooGenericExceptionCaught:ClaudeCodeAdapter.kt$ClaudeCodeAdapter$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ShellRunner.kt$ShellRunner$e: Exception</ID>
+    <ID>TooGenericExceptionThrown:OrchestratorEdgeCaseTest.kt$OrchestratorEdgeCaseTest.&lt;no name provided&gt;$throw RuntimeException("Agent process died")</ID>
+    <ID>TooGenericExceptionThrown:OrchestratorEdgeCaseTest.kt$OrchestratorEdgeCaseTest.&lt;no name provided&gt;$throw RuntimeException("Process crashed")</ID>
+    <ID>UnusedPrivateProperty:BenchmarkTest.kt$BenchmarkTest$val mvccOverhead = parTotalMs - (System.currentTimeMillis() - mvccStart - (System.currentTimeMillis() - parTotalStart - parTotalMs).coerceAtLeast(0))</ID>
+    <ID>UnusedPrivateProperty:BenchmarkTest.kt$BenchmarkTest$val mvccPortionMs = parTotalMs - STEP_DELAY_MS.coerceAtMost(parTotalMs) // approximate</ID>
+    <ID>UnusedPrivateProperty:BenchmarkTest.kt$BenchmarkTest$val parStepsOnlyMs = System.currentTimeMillis() - mvccStart</ID>
+    <ID>UnusedPrivateProperty:BenchmarkTest.kt$BenchmarkTest$val stepResults = parPipeline.map { (name, runner) -&gt; async { val files = mutableListOf&lt;String&gt;() runner.run(name, root) {}.onEach { event -&gt; if (event is AgentEvent.FileModified) files.add(event.path) }.collect() name to files } }.awaitAll()</ID>
+    <ID>UnusedPrivateProperty:ParallelExecutionTest.kt$ParallelExecutionTest$val elapsed = System.currentTimeMillis() - startTime</ID>
+  </CurrentIssues>
+</SmellBaseline>
