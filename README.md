@@ -83,6 +83,40 @@ tasks:
 
 Tasks without dependencies run in parallel. If two parallel tasks modify the same file, the earlier task in YAML order wins and the loser is retried automatically (up to `max_retries`).
 
+### Per-task runners
+
+Each task can specify which runner executes it via the `runner` field, referencing a named entry in the top-level `runners` map. This lets you mix different tools in the same DAG — cheap local models for simple tasks, frontier models for complex analysis, shell commands for deterministic steps.
+
+```yaml
+project: my-project
+runners:
+  claude:
+    type: claude-code
+    extra_args: [--dangerously-skip-permissions]
+  shell:
+    type: shell
+    allowed_commands: [npm, pytest]
+    timeout_seconds: 120
+
+tasks:
+  - id: analyze
+    instruction: "Identify root causes from build logs"
+    runner: claude
+    files: [analysis/]
+
+  - id: run-tests
+    instruction: "pytest src/"
+    runner: shell
+    files: [src/, tests/]
+
+  - id: review
+    instruction: "Final review of changes"
+    # no runner = uses default CLI runner
+    depends_on: [analyze, run-tests]
+```
+
+Supported runner types: `claude-code`, `shell`. Tasks without a `runner` field use the default CLI runner (Claude Code).
+
 ## Terminal output
 
 ```
