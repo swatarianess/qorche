@@ -72,11 +72,18 @@ data class RunnerConfig(
     val timeoutSeconds: Long = 300
 )
 
-/** Top-level YAML structure: a named project with an ordered list of task definitions. */
+/**
+ * Top-level YAML structure: a named project with an ordered list of task definitions.
+ *
+ * @property defaultRunner Optional name of the runner to use for tasks that don't specify one.
+ *   Must reference a key in [runners]. When null, the shell runner is used as the default.
+ */
 @Serializable
 data class TaskProject(
     val project: String,
     val runners: Map<String, RunnerConfig> = emptyMap(),
+    @SerialName("default_runner")
+    val defaultRunner: String? = null,
     val tasks: List<TaskDefinition>
 )
 

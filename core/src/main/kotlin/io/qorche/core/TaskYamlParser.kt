@@ -40,10 +40,22 @@ object TaskYamlParser {
     }
 
     /**
-     * Validate that every task's runner reference points to a defined runner.
+     * Validate that every task's runner reference and [TaskProject.defaultRunner]
+     * point to defined runners.
      */
     private fun validateRunnerReferences(project: TaskProject) {
         val definedRunners = project.runners.keys
+
+        val defaultRunner = project.defaultRunner
+        if (defaultRunner != null) {
+            if (defaultRunner !in definedRunners) {
+                throw TaskParseException(
+                    "default_runner '$defaultRunner' is not defined in runners. " +
+                        "Defined runners: ${definedRunners.ifEmpty { setOf("(none)") }.joinToString(", ")}"
+                )
+            }
+        }
+
         for (task in project.tasks) {
             val runnerName = task.runner ?: continue
             require(runnerName in definedRunners) {

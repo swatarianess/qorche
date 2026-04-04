@@ -11,6 +11,7 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.int
 import io.qorche.agent.ClaudeCodeAdapter
 import io.qorche.agent.RunnerRegistry
+import io.qorche.agent.ShellRunner
 import io.qorche.core.CycleDetectedException
 import io.qorche.core.ExitCode
 import io.qorche.core.HashAlgorithm
@@ -80,8 +81,6 @@ class RunCommand : CliktCommand(name = "run") {
                 }
             }
         }
-        val extraArgs = if (skipPermissions) listOf("--dangerously-skip-permissions") else emptyList()
-        val runner = ClaudeCodeAdapter(extraArgs = extraArgs)
         val startTime = System.currentTimeMillis()
 
         if (!hashExplicit && output == "text") {
@@ -95,8 +94,10 @@ class RunCommand : CliktCommand(name = "run") {
         val isYamlFile = instructionOrFile.endsWith(".yaml") || instructionOrFile.endsWith(".yml")
 
         if (isYamlFile) {
-            runGraphFromFile(workDir, orchestrator, runner, startTime)
+            runGraphFromFile(workDir, orchestrator, startTime)
         } else {
+            val extraArgs = if (skipPermissions) listOf("--dangerously-skip-permissions") else emptyList()
+            val runner = ClaudeCodeAdapter(extraArgs = extraArgs)
             runSingleTask(orchestrator, runner, startTime)
         }
     }
@@ -157,7 +158,6 @@ class RunCommand : CliktCommand(name = "run") {
     private fun runGraphFromFile(
         workDir: Path,
         orchestrator: Orchestrator,
-        runner: ClaudeCodeAdapter,
         startTime: Long
     ) {
         val filePath = workDir.resolve(instructionOrFile)
@@ -176,6 +176,16 @@ class RunCommand : CliktCommand(name = "run") {
 
         val runners = buildRunnerRegistry(project.runners)
 
+        val defaultRunner: io.qorche.core.AgentRunner = if (project.defaultRunner != null) {
+            runners[project.defaultRunner]
+                ?: run {
+                    echo("Error: default_runner '${project.defaultRunner}' not found in runners", err = true)
+                    exitProcess(ExitCode.CONFIG_ERROR.code)
+                }
+        } else {
+            ShellRunner(allowedCommands = setOf("sh", "bash", "cmd", "powershell"))
+        }
+
         if (output == "text") {
             echo("Project: ${project.project}")
             echo("Tasks: ${project.tasks.size}")
@@ -189,7 +199,7 @@ class RunCommand : CliktCommand(name = "run") {
             val result = orchestrator.runGraphParallel(
                 project = project.project,
                 graph = graph,
-                runner = runner,
+                runner = defaultRunner,
                 runners = runners,
                 onTaskStart = { def ->
                     if (output == "text") echo("${Terminal.cyan("[${def.id}]")} Starting: ${def.instruction}")

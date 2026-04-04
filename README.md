@@ -131,11 +131,11 @@ tasks:
 
   - id: review
     instruction: "Final review of changes"
-    # no runner = uses default CLI runner
+    # no runner = uses default_runner (shell if not set)
     depends_on: [analyze, run-tests]
 ```
 
-Supported runner types: `claude-code`, `shell`. Tasks without a `runner` field use the default CLI runner (Claude Code).
+Supported runner types: `claude-code`, `shell`. Tasks without a `runner` field use `default_runner`. If `default_runner` is not set, the shell runner is used.
 
 ## Terminal output
 
