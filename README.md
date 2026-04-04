@@ -459,7 +459,15 @@ Building from source requires JDK 21+.
 
 ## Contributing
 
-Contributions welcome. See [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions, architecture overview, and coding conventions. The project uses `CLAUDE.md` files in each module for Claude Code integration, these are also useful as quick-reference guides for any contributor.
+Contributions welcome. Before submitting a PR:
+
+- Read [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions, architecture overview, and module structure
+- Read [CLAUDE.md](CLAUDE.md) for project conventions, architecture constraints (GraalVM, cross-platform, module boundaries), and coding style
+- Read [TESTING.md](TESTING.md) for test infrastructure, running benchmarks, and writing new tests
+- Run `./gradlew test detekt` and ensure both pass before opening a PR
+- Keep module boundaries strict: `core/` has zero external dependencies, `agent/` depends only on `core/`
+
+This project is licensed under Apache 2.0. By contributing, you agree that your contributions will be licensed under the same terms.
 
 ## License
 
