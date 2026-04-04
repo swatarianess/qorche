@@ -57,9 +57,6 @@ jobs:
           - os: windows-latest
             artifact: qorche-windows-amd64.exe
             binary: cli/build/native/nativeCompile/qorche.exe
-          - os: macos-latest
-            artifact: qorche-macos-arm64
-            binary: cli/build/native/nativeCompile/qorche
 
     runs-on: ${{ matrix.os }}
 
