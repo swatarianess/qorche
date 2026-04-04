@@ -256,14 +256,21 @@ class OrchestratorGraphTest {
             // Should have 3 starts + 3 completions = 6 entries
             assertEquals(6, entries.size)
 
-            // Verify chronological order: start1, complete1, start2, complete2, start3, complete3
+            // Verify structural order: start before complete for each task
             val taskStarted = entries.filterIsInstance<WALEntry.TaskStarted>()
             val taskCompleted = entries.filterIsInstance<WALEntry.TaskCompleted>()
             assertEquals(3, taskStarted.size)
             assertEquals(3, taskCompleted.size)
 
-            // First started should be before first completed
-            assertTrue(taskStarted[0].timestamp <= taskCompleted[0].timestamp)
+            // WAL is append-only — each task's start entry must appear before its complete entry
+            for (started in taskStarted) {
+                val completedEntry = taskCompleted.first { it.taskId == started.taskId }
+                val startIndex = entries.indexOf(started)
+                val completeIndex = entries.indexOf(completedEntry)
+                assertTrue(startIndex < completeIndex,
+                    "TaskStarted for '${started.taskId}' (index $startIndex) should appear before " +
+                        "TaskCompleted (index $completeIndex) in WAL")
+            }
         } finally {
             root.toFile().deleteRecursively()
         }
