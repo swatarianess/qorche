@@ -123,6 +123,17 @@ subprojects {
         jvmArgs("-Xmx64m")
     }
 
+    tasks.register<Test>("smokeTest") {
+        useJUnitPlatform {
+            includeTags("smoke")
+        }
+        jvmArgs("-Xmx64m")
+        group = "verification"
+        description = "Run smoke tests (integration tests for resolver, verify, replay)"
+        testClassesDirs = tasks.named<Test>("test").get().testClassesDirs
+        classpath = tasks.named<Test>("test").get().classpath
+    }
+
     tasks.register<Test>("benchmark") {
         useJUnitPlatform {
             includeTags("benchmark")
