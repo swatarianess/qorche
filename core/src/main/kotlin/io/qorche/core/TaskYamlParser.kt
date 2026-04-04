@@ -29,10 +29,26 @@ object TaskYamlParser {
 
     fun parse(content: String): TaskProject {
         require(content.isNotBlank()) { "Task definition file is empty" }
-        return try {
+        val project = try {
             yaml.decodeFromString(TaskProject.serializer(), content)
         } catch (e: Exception) {
             throw TaskParseException("Failed to parse task definition: ${e.message}", e)
+        }
+        validateRunnerReferences(project)
+        return project
+    }
+
+    /**
+     * Validate that every task's runner reference points to a defined runner.
+     */
+    private fun validateRunnerReferences(project: TaskProject) {
+        val definedRunners = project.runners.keys
+        for (task in project.tasks) {
+            val runnerName = task.runner ?: continue
+            require(runnerName in definedRunners) {
+                "Task '${task.id}' references undefined runner '$runnerName'. " +
+                    "Defined runners: ${definedRunners.ifEmpty { setOf("(none)") }.joinToString(", ")}"
+            }
         }
     }
 

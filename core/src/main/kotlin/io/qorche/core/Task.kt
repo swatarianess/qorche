@@ -33,6 +33,8 @@ enum class TaskStatus {
  * @property files Declared file scope — paths this task is expected to modify.
  *   Used for scoped snapshots and scope-violation auditing.
  * @property maxRetries Maximum retry attempts on MVCC conflict (0 = no retry).
+ * @property runner Optional runner name referencing the [TaskProject.runners] map.
+ *   When null, the default runner is used.
  */
 @Serializable
 data class TaskDefinition(
@@ -43,13 +45,38 @@ data class TaskDefinition(
     val dependsOn: List<String> = emptyList(),
     val files: List<String> = emptyList(),
     @SerialName("max_retries")
-    val maxRetries: Int = 0
+    val maxRetries: Int = 0,
+    val runner: String? = null
+)
+
+/**
+ * Configuration for a named runner in the YAML runners map.
+ *
+ * @property type Runner type identifier (e.g. "claude-code", "shell", "ollama").
+ * @property model Optional model name (for LLM-backed runners).
+ * @property endpoint Optional service endpoint URL.
+ * @property extraArgs Additional command-line arguments passed to the runner.
+ * @property allowedCommands Permitted commands (for shell runners).
+ * @property timeoutSeconds Maximum execution time in seconds (default: 300).
+ */
+@Serializable
+data class RunnerConfig(
+    val type: String,
+    val model: String? = null,
+    val endpoint: String? = null,
+    @SerialName("extra_args")
+    val extraArgs: List<String> = emptyList(),
+    @SerialName("allowed_commands")
+    val allowedCommands: List<String> = emptyList(),
+    @SerialName("timeout_seconds")
+    val timeoutSeconds: Long = 300
 )
 
 /** Top-level YAML structure: a named project with an ordered list of task definitions. */
 @Serializable
 data class TaskProject(
     val project: String,
+    val runners: Map<String, RunnerConfig> = emptyMap(),
     val tasks: List<TaskDefinition>
 )
 

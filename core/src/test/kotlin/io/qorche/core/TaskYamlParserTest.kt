@@ -156,6 +156,90 @@ class TaskYamlParserTest {
     }
 
     @Test
+    fun `parse runners and per-task runner assignment`() {
+        val yaml = """
+            project: multi-runner
+            runners:
+              ollama:
+                type: ollama
+                model: qwen2.5-coder:7b
+                endpoint: http://localhost:11434
+              claude:
+                type: claude-code
+                extra_args: [--dangerously-skip-permissions]
+              shell:
+                type: shell
+                allowed_commands: [npm, gradle, pytest]
+            tasks:
+              - id: extract
+                instruction: "Parse build logs"
+                runner: ollama
+                files: [logs/build.log]
+              - id: analyze
+                instruction: "Identify root causes"
+                runner: claude
+                depends_on: [extract]
+              - id: run-tests
+                instruction: "pytest src/"
+                runner: shell
+              - id: review
+                instruction: "Final review"
+        """.trimIndent()
+
+        val project = TaskYamlParser.parse(yaml)
+        assertEquals("multi-runner", project.project)
+        assertEquals(3, project.runners.size)
+
+        val ollama = project.runners["ollama"]!!
+        assertEquals("ollama", ollama.type)
+        assertEquals("qwen2.5-coder:7b", ollama.model)
+        assertEquals("http://localhost:11434", ollama.endpoint)
+
+        val claude = project.runners["claude"]!!
+        assertEquals("claude-code", claude.type)
+        assertEquals(listOf("--dangerously-skip-permissions"), claude.extraArgs)
+
+        val shell = project.runners["shell"]!!
+        assertEquals("shell", shell.type)
+        assertEquals(listOf("npm", "gradle", "pytest"), shell.allowedCommands)
+
+        assertEquals("ollama", project.tasks[0].runner)
+        assertEquals("claude", project.tasks[1].runner)
+        assertEquals("shell", project.tasks[2].runner)
+        assertEquals(null, project.tasks[3].runner)
+    }
+
+    @Test
+    fun `parse rejects undefined runner reference`() {
+        val yaml = """
+            project: bad-ref
+            tasks:
+              - id: task-1
+                instruction: "Do something"
+                runner: nonexistent
+        """.trimIndent()
+
+        val ex = assertFailsWith<IllegalArgumentException> {
+            TaskYamlParser.parse(yaml)
+        }
+        assertTrue(ex.message!!.contains("nonexistent"))
+    }
+
+    @Test
+    fun `parse allows tasks without runners when no runners defined`() {
+        val yaml = """
+            project: no-runners
+            tasks:
+              - id: task-1
+                instruction: "Do something"
+        """.trimIndent()
+
+        val project = TaskYamlParser.parse(yaml)
+        assertTrue(project.runners.isEmpty())
+        assertEquals(null, project.tasks[0].runner)
+    }
+
+    @Test
     fun `parallel groups identified correctly`() {
         val yaml = """
             project: test

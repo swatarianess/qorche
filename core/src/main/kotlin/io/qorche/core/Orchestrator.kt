@@ -104,13 +104,32 @@ class Orchestrator(private val workDir: Path) {
     }
 
     /**
+     * Resolve the runner for a task: look up the task's runner name in the registry,
+     * falling back to the default runner when unset.
+     */
+    private fun resolveRunner(
+        def: TaskDefinition,
+        defaultRunner: AgentRunner,
+        runners: Map<String, AgentRunner>
+    ): AgentRunner {
+        val runnerName = def.runner ?: return defaultRunner
+        return checkNotNull(runners[runnerName]) {
+            "Task '${def.id}' references unknown runner '$runnerName'"
+        }
+    }
+
+    /**
      * Execute a task graph sequentially in topological order.
      * If a task fails, all tasks that depend on it are skipped.
+     *
+     * @param runners Named runner registry. Tasks with a `runner` field are dispatched
+     *   to the corresponding entry; all others use [runner] as the default.
      */
     suspend fun runGraph(
         project: String,
         graph: TaskGraph,
         runner: AgentRunner,
+        runners: Map<String, AgentRunner> = emptyMap(),
         onTaskStart: (TaskDefinition) -> Unit = {},
         onTaskComplete: (String, TaskOutcome) -> Unit = { _, _ -> },
         onOutput: (String) -> Unit = {}
@@ -139,11 +158,12 @@ class Orchestrator(private val workDir: Path) {
             onTaskStart(def)
             node.status = TaskStatus.RUNNING
 
+            val taskRunner = resolveRunner(def, runner, runners)
             val startNanos = System.nanoTime()
             val taskResult = runTask(
                 taskId = taskId,
                 instruction = def.instruction,
-                runner = runner,
+                runner = taskRunner,
                 scopePaths = def.files,
                 onOutput = onOutput
             )
@@ -193,10 +213,15 @@ class Orchestrator(private val workDir: Path) {
      * the earlier task in group order wins; losers are retried sequentially
      * against the updated filesystem (up to [retryPolicy] limits).
      */
+    /**
+     * @param runners Named runner registry. Tasks with a `runner` field are dispatched
+     *   to the corresponding entry; all others use [runner] as the default.
+     */
     suspend fun runGraphParallel(
         project: String,
         graph: TaskGraph,
         runner: AgentRunner,
+        runners: Map<String, AgentRunner> = emptyMap(),
         retryPolicy: ConflictDetector.ConflictRetryPolicy = ConflictDetector.ConflictRetryPolicy(),
         onTaskStart: (TaskDefinition) -> Unit = {},
         onTaskComplete: (String, TaskOutcome) -> Unit = { _, _ -> },
@@ -218,7 +243,8 @@ class Orchestrator(private val workDir: Path) {
 
             if (runnableTasks.size == 1) {
                 val taskId = runnableTasks[0]
-                val outcome = executeTask(taskId, graph, runner, onTaskStart, onOutput)
+                val taskRunner = resolveRunner(graph[taskId]!!.definition, runner, runners)
+                val outcome = executeTask(taskId, graph, taskRunner, onTaskStart, onOutput)
                 outcomes[taskId] = outcome
                 if (outcome.status == TaskStatus.FAILED) failedTasks.add(taskId)
                 onTaskComplete(taskId, outcome)
@@ -232,10 +258,14 @@ class Orchestrator(private val workDir: Path) {
                 runnableTasks.map { taskId ->
                     async {
                         val node = graph[taskId]!!
+                        val taskRunner = resolveRunner(node.definition, runner, runners)
                         onTaskStart(node.definition)
                         node.status = TaskStatus.RUNNING
                         val startNanos = System.nanoTime()
-                        val result = snapshotAndRun(taskId, node.definition.instruction, node.definition.files, runner, onOutput, walMutex)
+                        val result = snapshotAndRun(
+                            taskId, node.definition.instruction,
+                            node.definition.files, taskRunner, onOutput, walMutex
+                        )
                         val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000
                         Triple(taskId, result, elapsedMs)
                     }
@@ -263,9 +293,10 @@ class Orchestrator(private val workDir: Path) {
 
                 for (loserId in resolution.losers) {
                     if (loserId in outcomes) continue
+                    val loserRunner = resolveRunner(graph[loserId]!!.definition, runner, runners)
                     val retries = retryLoser(
                         loserId, graph, conflicts, changesByTask, taskRunResults, taskElapsed,
-                        baseSnapshot, retryPolicy, runner, walMutex, failedTasks, outcomes,
+                        baseSnapshot, retryPolicy, loserRunner, walMutex, failedTasks, outcomes,
                         onRetry, onTaskComplete, onOutput
                     )
                     totalRetries += retries

@@ -24,6 +24,7 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  security-events: write
 
 jobs:
   test:
@@ -41,6 +42,23 @@ jobs:
           java-version: 21
 
       - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run Detekt
+        run: ./gradlew detekt
+
+      - name: Upload Detekt merged report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detekt-report-${{ matrix.os }}
+          path: build/reports/detekt/
+
+      - name: Upload Detekt SARIF to GitHub Code Scanning
+        if: always() && matrix.os == 'ubuntu-latest'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: build/reports/detekt/merged.sarif
+          category: detekt
 
       - name: Run tests
         run: ./gradlew test
