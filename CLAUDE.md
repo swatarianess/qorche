@@ -19,6 +19,12 @@ formatters, code generators — managed via the AgentRunner interface.
 Domain-specific adapters live only in io.qorche.agent (e.g. ClaudeCodeAdapter).
 The architecture supports any worker type without changes to core.
 
+Tasks can specify per-task runners via the `runner` field in YAML, referencing
+the top-level `runners` map. RunnerConfig (core/) defines the schema;
+RunnerRegistry (agent/) builds AgentRunner instances from configs. The
+Orchestrator accepts a `runners: Map<String, AgentRunner>` registry alongside
+the default runner.
+
 ## Project planning
 
 See docs/PHASE1_PLAN.md for the full roadmap, data models, milestone definitions
@@ -110,6 +116,13 @@ in core/ and implement it in the appropriate module.
 - WAL uses JSON Lines format (.jsonl) — one JSON object per line, append-only
 - Timestamps: kotlinx.datetime.Instant
 
+### Runner configuration
+- RunnerConfig is @Serializable with snake_case @SerialName fields (extra_args, allowed_commands, timeout_seconds)
+- TaskDefinition.runner is optional; null means use the default runner
+- TaskProject.runners defaults to emptyMap() for backward compatibility
+- RunnerRegistry (agent/) maps config type strings to AgentRunner implementations
+- Validation: TaskYamlParser rejects tasks referencing undefined runner names
+
 ### Error handling
 - Use Result<T> or sealed class results for expected failures
 - Throw exceptions only for programmer errors (bugs)
@@ -122,6 +135,10 @@ in core/ and implement it in the appropriate module.
 - Every public function in core/ should have tests
 - Integration tests with real agents are separate and opt-in
 - Test cross-platform path handling explicitly
+- ALWAYS run Detekt alongside tests: `./gradlew test detekt`
+  Detekt catches real issues (warnings and code smells). Fix Detekt findings
+  before committing. If a finding is a false positive, add it to the module's
+  `detekt-baseline.xml` rather than suppressing inline.
 
 ## Local data directory
 - `.qorche/` is the local data store (similar to `.git/`)

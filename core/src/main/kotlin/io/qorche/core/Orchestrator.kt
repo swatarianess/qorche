@@ -113,8 +113,9 @@ class Orchestrator(private val workDir: Path) {
         runners: Map<String, AgentRunner>
     ): AgentRunner {
         val runnerName = def.runner ?: return defaultRunner
-        return runners[runnerName]
-            ?: throw IllegalStateException("Task '${def.id}' references unknown runner '$runnerName'")
+        return checkNotNull(runners[runnerName]) {
+            "Task '${def.id}' references unknown runner '$runnerName'"
+        }
     }
 
     /**
@@ -261,7 +262,10 @@ class Orchestrator(private val workDir: Path) {
                         onTaskStart(node.definition)
                         node.status = TaskStatus.RUNNING
                         val startNanos = System.nanoTime()
-                        val result = snapshotAndRun(taskId, node.definition.instruction, node.definition.files, taskRunner, onOutput, walMutex)
+                        val result = snapshotAndRun(
+                            taskId, node.definition.instruction,
+                            node.definition.files, taskRunner, onOutput, walMutex
+                        )
                         val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000
                         Triple(taskId, result, elapsedMs)
                     }

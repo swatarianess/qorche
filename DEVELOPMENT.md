@@ -172,15 +172,32 @@ Qorche stores all local state in `.qorche/` (similar to `.git/`):
 
 This directory should be in `.gitignore` for user projects. The `qorche init` command handles this automatically.
 
+## Per-task runner assignment
+
+Tasks can specify which runner executes them via the `runner` field in YAML, referencing a named entry in the top-level `runners` map. This enables mixing different tools (LLM agents, shell commands) in the same DAG.
+
+### How it works
+
+- **core/Task.kt**: `RunnerConfig` defines runner configuration (type, model, endpoint, extra_args, allowed_commands, timeout_seconds). `TaskDefinition` has an optional `runner: String?` field. `TaskProject` has a `runners: Map<String, RunnerConfig>` map.
+- **core/TaskYamlParser.kt**: Validates that every task's `runner` reference points to a defined entry in the `runners` map at parse time.
+- **core/Orchestrator.kt**: `runGraph()` and `runGraphParallel()` accept a `runners: Map<String, AgentRunner>` registry alongside the default `runner`. Each task is dispatched to its named runner, or the default if unset.
+- **agent/RunnerRegistry.kt**: Builds `Map<String, AgentRunner>` from `Map<String, RunnerConfig>`. Maps `type` to concrete implementations (`claude-code` → `ClaudeCodeAdapter`, `shell` → `ShellRunner`).
+- **cli/Commands.kt**: Builds the runner registry from `TaskProject.runners` and passes it to the orchestrator.
+
+### Backward compatibility
+
+Existing YAML files without `runners` or per-task `runner` fields work unchanged. The `runners` map defaults to empty and unset `runner` fields fall back to the default CLI runner.
+
 ## Adding a new adapter
 
 1. Create a new file in `agent/src/main/kotlin/io/qorche/agent/` (e.g., `OllamaAdapter.kt`)
 2. Implement the `AgentRunner` interface from `core/`
 3. Your adapter receives an instruction string, a working directory, and an output callback
 4. Return a `Flow<AgentEvent>` with lifecycle events (Output, FileModified, Completed, Error)
-5. The orchestrator handles everything else, snapshots, conflict detection, retry, WAL logging
-6. Add tests using the same patterns as `ShellRunnerTest` or `ClaudeCodeAdapterTest`
-7. Do not depend on other adapters, each adapter is self-contained
+5. Register the new type in `RunnerRegistry.createRunner()` so YAML `type: your-type` maps to the new adapter
+6. The orchestrator handles everything else, snapshots, conflict detection, retry, WAL logging
+7. Add tests using the same patterns as `ShellRunnerTest` or `ClaudeCodeAdapterTest`
+8. Do not depend on other adapters, each adapter is self-contained
 
 ## CI/CD
 

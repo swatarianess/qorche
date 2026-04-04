@@ -169,12 +169,7 @@ class RunCommand : CliktCommand(name = "run") {
             exitProcess(2)
         }
 
-        val runners = try {
-            RunnerRegistry.build(project.runners)
-        } catch (e: IllegalArgumentException) {
-            echo("Error: ${e.message}", err = true)
-            exitProcess(2)
-        }
+        val runners = buildRunnerRegistry(project.runners)
 
         if (output == "text") {
             echo("Project: ${project.project}")
@@ -238,6 +233,15 @@ class RunCommand : CliktCommand(name = "run") {
 
             if (!result.success) exitProcess(1)
         }
+    }
+
+    private fun buildRunnerRegistry(
+        configs: Map<String, io.qorche.core.RunnerConfig>
+    ): Map<String, io.qorche.core.AgentRunner> = try {
+        RunnerRegistry.build(configs)
+    } catch (e: IllegalArgumentException) {
+        echo("Error: ${e.message}", err = true)
+        exitProcess(2)
     }
 }
 
