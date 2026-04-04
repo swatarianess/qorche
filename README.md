@@ -171,6 +171,86 @@ Total time: 47230ms
 6. **Audit** scope violations when workers write outside their declared file scope
 7. **Log** everything to `.qorche/wal.jsonl`, complete audit trail for replay and debugging
 
+## Architecture
+
+### System Context (C4 Level 1)
+
+```mermaid
+graph TB
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef external fill:#999,stroke:#666,color:#fff
+
+    Dev["<b>Developer</b><br/><i>Defines tasks in YAML<br/>and invokes Qorche</i>"]:::person
+
+    subgraph Qorche_System [" "]
+        Q["<b>Qorche</b><br/><i>Deterministic orchestrator for<br/>concurrent filesystem mutations.<br/>Coordinates workers via MVCC snapshots,<br/>DAG scheduling, and conflict detection.</i>"]:::system
+    end
+
+    Agents["<b>Workers</b><br/><i>Any process that modifies files:<br/>LLM agents, shell commands,<br/>build tools, formatters</i>"]:::external
+    FS["<b>Filesystem</b><br/><i>Working directory where<br/>all mutations occur</i>"]:::external
+    YAML["<b>tasks.yaml</b><br/><i>Task definitions, dependencies,<br/>file scopes, runner configs</i>"]:::external
+
+    Dev -->|"runs commands<br/>via CLI or library"| Q
+    Dev -->|"authors"| YAML
+    YAML -->|"parsed by"| Q
+    Q -->|"spawns and<br/>manages"| Agents
+    Q -->|"snapshots, hashes,<br/>and monitors"| FS
+    Agents -->|"modify files in"| FS
+```
+
+### Container Diagram (C4 Level 2)
+
+```mermaid
+graph TB
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef core fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef agent fill:#438dd5,stroke:#2e6295,color:#fff
+    classDef cli fill:#2694ab,stroke:#1a6d7d,color:#fff
+    classDef native fill:#2b78e4,stroke:#1a5591,color:#fff
+    classDef external fill:#999,stroke:#666,color:#fff
+    classDef store fill:#555,stroke:#333,color:#fff
+
+    Dev["<b>Developer</b><br/><i>Defines tasks and invokes Qorche</i>"]:::person
+
+    subgraph Qorche ["Qorche System"]
+        direction TB
+
+        CLI["<b>cli/</b><br/><i>Command-Line Interface</i><br/>Clikt commands: run, plan,<br/>history, diff, clean, schema"]:::cli
+
+        Agent["<b>agent/</b><br/><i>Runner Implementations</i><br/>ClaudeCodeAdapter, ShellRunner,<br/>MockAgentRunner, RunnerRegistry"]:::agent
+
+        Core["<b>core/</b><br/><i>Orchestration Engine</i><br/>Orchestrator, TaskGraph, SnapshotCreator,<br/>ConflictDetector, WALWriter, FileIndex"]:::core
+
+        Native["<b>native/</b><br/><i>GraalVM Shared Library</i><br/>C-compatible FFI for embedding<br/>in non-JVM languages"]:::native
+    end
+
+    Workers["<b>Workers</b><br/><i>LLM agents, shell commands,<br/>build tools, formatters</i>"]:::external
+
+    subgraph Storage [".qorche/ Local Data"]
+        direction LR
+        Snaps["<b>snapshots/</b><br/><i>JSON snapshot files</i>"]:::store
+        WAL["<b>wal.jsonl</b><br/><i>Write-ahead log</i>"]:::store
+        FIdx["<b>file-index.json</b><br/><i>mtime/hash cache</i>"]:::store
+        Logs["<b>logs/</b><br/><i>Per-task agent output</i>"]:::store
+    end
+
+    FS["<b>Filesystem</b><br/><i>Working directory</i>"]:::external
+    YAML["<b>tasks.yaml</b><br/><i>Task definitions</i>"]:::external
+
+    Dev -->|"invokes"| CLI
+    Dev -->|"authors"| YAML
+    YAML -->|"parsed by"| CLI
+    CLI -->|"dispatches tasks to"| Core
+    CLI -->|"builds runners via"| Agent
+    Agent -->|"implements AgentRunner<br/>interface defined in"| Core
+    Agent -->|"spawns and manages"| Workers
+    Native -->|"exposes FFI bindings for"| Core
+    Core -->|"reads/writes"| Storage
+    Core -->|"snapshots and monitors"| FS
+    Workers -->|"modify files in"| FS
+```
+
 ## Correctness & Guarantees
 
 **What Qorche guarantees:**
