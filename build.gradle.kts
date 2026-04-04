@@ -1,6 +1,6 @@
 plugins {
-    kotlin("jvm") version "2.3.20" apply false
-    kotlin("plugin.serialization") version "2.3.20" apply false
+    kotlin("jvm") apply false
+    kotlin("plugin.serialization") apply false
     id("org.graalvm.buildtools.native") version "0.10.6" apply false
     id("io.gitlab.arturbosch.detekt") version "1.23.7"
 }

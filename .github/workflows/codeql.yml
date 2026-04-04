@@ -47,7 +47,7 @@ jobs:
 
       - name: Build with Gradle
         if: matrix.language == 'java-kotlin'
-        run: ./gradlew classes testClasses
+        run: ./gradlew classes testClasses -PkotlinVersion=2.3.0
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
