@@ -1,8 +1,11 @@
 package io.qorche.ffi
 
+import io.qorche.agent.RunnerRegistry
 import io.qorche.core.Orchestrator
 import io.qorche.core.SnapshotCreator
 import io.qorche.core.TaskYamlParser
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -61,6 +64,39 @@ object QorcheApi {
         val d = orchestrator.diffSnapshots(snapshotId1, snapshotId2)
         if (d != null) Json.encodeToString(d)
         else errorJson("Snapshot not found")
+    } catch (e: Exception) {
+        errorJson(e.message ?: "Unknown error")
+    }
+
+    /**
+     * Execute a task graph from a YAML file with full runner support.
+     *
+     * Parses the YAML, builds runners from the `runners:` config via [RunnerRegistry],
+     * and executes the graph (parallel groups when possible). Returns a JSON result
+     * with per-task outcomes, conflicts, and summary counters.
+     *
+     * @param yamlPath Path to the tasks.yaml file.
+     * @param workDirPath Working directory for task execution and snapshots.
+     * @return JSON string with execution results or `{"error": "..."}`.
+     */
+    fun run(yamlPath: String, workDirPath: String): String = try {
+        val workDir = Path.of(workDirPath)
+        val (project, graph) = TaskYamlParser.parseFileToGraph(Path.of(yamlPath))
+        val orchestrator = Orchestrator(workDir)
+        val runners = RunnerRegistry.build(project.runners)
+        val defaultRunner = runners.values.firstOrNull()
+            ?: io.qorche.agent.ClaudeCodeAdapter()
+
+        val result = runBlocking {
+            orchestrator.runGraphParallel(
+                project = project.project,
+                graph = graph,
+                runner = defaultRunner,
+                runners = runners
+            )
+        }
+
+        Json.encodeToString(result)
     } catch (e: Exception) {
         errorJson(e.message ?: "Unknown error")
     }

@@ -63,6 +63,9 @@ lib.qorche_plan.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
 lib.qorche_snapshot.restype = ctypes.c_char_p
 lib.qorche_snapshot.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p]
 
+lib.qorche_run.restype = ctypes.c_char_p
+lib.qorche_run.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p]
+
 lib.qorche_free.restype = None
 lib.qorche_free.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
 
@@ -152,6 +155,38 @@ tasks:
     finally:
         os.unlink(yaml_path)
 
+def test_run_with_shell_runner():
+    """Test qorche_run with a shell runner that creates a file."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create a tasks.yaml with a shell runner
+        if sys.platform == "win32":
+            cmd = "cmd"
+        else:
+            cmd = "echo"
+
+        yaml_content = f"""
+project: run-test
+runners:
+  shell:
+    type: shell
+    allowed_commands: [{cmd}]
+    timeout_seconds: 30
+tasks:
+  - id: greet
+    instruction: "{cmd} hello"
+    runner: shell
+""".strip()
+        yaml_path = os.path.join(tmpdir, "tasks.yaml")
+        with open(yaml_path, "w") as f:
+            f.write(yaml_content)
+
+        result = lib.qorche_run(thread, yaml_path.encode("utf-8"), tmpdir.encode("utf-8"))
+        data = json.loads(result.decode("utf-8"))
+
+        # Should have execution results (success or failure is ok, we're testing the FFI bridge)
+        assert "error" not in data or "completedTasks" in str(data), \
+            f"Expected execution result, got: {data}"
+
 def test_snapshot():
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create a test file
@@ -172,6 +207,7 @@ test("qorche_version", test_version)
 test("qorche_validate_yaml (valid)", test_validate_yaml)
 test("qorche_validate_yaml (invalid)", test_validate_invalid_yaml)
 test("qorche_plan", test_plan)
+test("qorche_run (shell runner)", test_run_with_shell_runner)
 test("qorche_snapshot", test_snapshot)
 
 # ── Teardown ───────────────────────────────────────────────────
