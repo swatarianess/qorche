@@ -246,6 +246,7 @@ graph TB
     Agent -->|"implements AgentRunner<br/>interface defined in"| Core
     Agent -->|"spawns and manages"| Workers
     Native -->|"exposes FFI bindings for"| Core
+    Native -->|"uses built-in runners from"| Agent
     Core -->|"reads/writes"| Storage
     Core -->|"snapshots and monitors"| FS
     Workers -->|"modify files in"| FS
