@@ -25,10 +25,30 @@ If you're running parallel agents today, you're probably using git worktrees + t
 
 ## Quick start
 
-```bash
-# Install (download native binary, no JVM required)
-# https://github.com/swatarianess/qorche/releases
+### Install
 
+**Linux / macOS**
+```bash
+# Download the latest release
+curl -fsSL -o qorche https://github.com/swatarianess/qorche/releases/latest/download/qorche-linux-amd64
+chmod +x qorche
+sudo mv qorche /usr/local/bin/
+```
+
+**Windows (PowerShell)**
+```powershell
+Invoke-WebRequest -Uri https://github.com/swatarianess/qorche/releases/latest/download/qorche-windows-amd64.exe -OutFile qorche.exe
+Move-Item qorche.exe "$env:LOCALAPPDATA\Microsoft\WindowsApps\"
+```
+
+**Verify**
+```bash
+qorche version
+```
+
+### Usage
+
+```bash
 # Initialize a new project (detects language, generates tasks.yaml + .qorignore)
 qorche init
 
@@ -434,8 +454,8 @@ Module boundaries are strict: `core/` depends on nothing, `agent/` depends on `c
 
 ## Requirements
 
-- JDK 21+ (for building from source)
-- Or download a [pre-built native binary](https://github.com/swatarianess/qorche/releases) (no JVM required)
+Pre-built native binaries require no runtime dependencies.
+Building from source requires JDK 21+.
 
 ## Contributing
 
