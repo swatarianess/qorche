@@ -1,7 +1,7 @@
 {
   "branches": [
     "main",
-    {"name": "develop", "prerelease": "alpha"}
+    {"name": "develop", "prerelease": "beta"}
   ],
   "plugins": [
     "@semantic-release/commit-analyzer",

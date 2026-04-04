@@ -240,6 +240,56 @@ class TaskYamlParserTest {
     }
 
     @Test
+    fun `parse default_runner field`() {
+        val yaml = """
+            project: with-default
+            runners:
+              claude:
+                type: claude-code
+            default_runner: claude
+            tasks:
+              - id: task-1
+                instruction: "Do something"
+        """.trimIndent()
+
+        val project = TaskYamlParser.parse(yaml)
+        assertEquals("claude", project.defaultRunner)
+    }
+
+    @Test
+    fun `parse rejects undefined default_runner`() {
+        val yaml = """
+            project: bad-default
+            runners:
+              shell:
+                type: shell
+                allowed_commands: [npm]
+            default_runner: nonexistent
+            tasks:
+              - id: task-1
+                instruction: "Do something"
+        """.trimIndent()
+
+        val ex = assertFailsWith<TaskParseException> {
+            TaskYamlParser.parse(yaml)
+        }
+        assertTrue(ex.message!!.contains("nonexistent"))
+    }
+
+    @Test
+    fun `parse default_runner null when omitted`() {
+        val yaml = """
+            project: no-default
+            tasks:
+              - id: task-1
+                instruction: "Do something"
+        """.trimIndent()
+
+        val project = TaskYamlParser.parse(yaml)
+        assertEquals(null, project.defaultRunner)
+    }
+
+    @Test
     fun `parallel groups identified correctly`() {
         val yaml = """
             project: test

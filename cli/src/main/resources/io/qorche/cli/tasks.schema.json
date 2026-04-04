@@ -12,9 +12,14 @@
       "description": "Project name. Used in snapshots, WAL entries, and output.",
       "examples": ["auth-refactor", "my-project"]
     },
+    "default_runner": {
+      "type": "string",
+      "description": "Name of the runner to use for tasks that don't specify a 'runner' field. Must reference a key in the 'runners' map. When omitted, the shell runner is used as the default.",
+      "examples": ["claude", "shell"]
+    },
     "runners": {
       "type": "object",
-      "description": "Named runner configurations. Each key is a runner name that tasks can reference via the 'runner' field. When omitted, all tasks use the default CLI runner.",
+      "description": "Named runner configurations. Each key is a runner name that tasks can reference via the 'runner' field or 'default_runner'.",
       "additionalProperties": {
         "$ref": "#/$defs/runner_config"
       },

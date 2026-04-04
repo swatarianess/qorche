@@ -2,8 +2,8 @@
 <SmellBaseline>
   <ManuallySuppressedIssues></ManuallySuppressedIssues>
   <CurrentIssues>
-    <ID>CyclomaticComplexMethod:Commands.kt$RunCommand$private fun runGraphFromFile( workDir: Path, orchestrator: Orchestrator, runner: ClaudeCodeAdapter, startTime: Long )</ID>
-    <ID>LongMethod:Commands.kt$RunCommand$private fun runGraphFromFile( workDir: Path, orchestrator: Orchestrator, runner: ClaudeCodeAdapter, startTime: Long )</ID>
+    <ID>CyclomaticComplexMethod:Commands.kt$RunCommand$private fun runGraphFromFile( workDir: Path, orchestrator: Orchestrator, startTime: Long )</ID>
+    <ID>LongMethod:Commands.kt$RunCommand$private fun runGraphFromFile( workDir: Path, orchestrator: Orchestrator, startTime: Long )</ID>
     <ID>LongMethod:InitCommand.kt$internal fun generateTasksYaml(type: ProjectType, workDir: Path): String</ID>
     <ID>LoopWithTooManyJumpStatements:JsonOutput.kt$for</ID>
     <ID>MaxLineLength:Commands.kt$QorcheCommand$override fun help(context: com.github.ajalt.clikt.core.Context)</ID>
