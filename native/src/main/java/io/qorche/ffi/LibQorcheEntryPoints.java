@@ -70,6 +70,15 @@ public final class LibQorcheEntryPoints {
         return toCString(QorcheApi.INSTANCE.diff(workDir, id1, id2));
     }
 
+    // ── Execution ──────────────────────────────────────────────
+
+    @CEntryPoint(name = "qorche_run")
+    public static CCharPointer run(IsolateThread thread, CCharPointer yamlPath, CCharPointer workDirPath) {
+        String yaml = CTypeConversion.toJavaString(yamlPath);
+        String workDir = CTypeConversion.toJavaString(workDirPath);
+        return toCString(QorcheApi.INSTANCE.run(yaml, workDir));
+    }
+
     // ── Memory ─────────────────────────────────────────────────
 
     @CEntryPoint(name = "qorche_free")
