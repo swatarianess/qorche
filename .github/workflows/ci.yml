@@ -20,6 +20,10 @@ on:
       - 'gradlew.bat'
       - '.github/workflows/ci.yml'
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   issues: write
@@ -60,8 +64,32 @@ jobs:
           sarif_file: build/reports/detekt/merged.sarif
           category: detekt
 
+      - name: Run tests with coverage
+        if: matrix.os == 'ubuntu-latest'
+        run: ./gradlew test koverXmlReport
+
       - name: Run tests
+        if: matrix.os != 'ubuntu-latest'
         run: ./gradlew test
+
+      - name: Post coverage to PR
+        if: github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest'
+        uses: madrapps/jacoco-report@v1.7.1
+        with:
+          paths: |
+            ${{ github.workspace }}/build/reports/kover/report.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "## Coverage Report"
+          update-comment: true
+          min-coverage-overall: 60
+          min-coverage-changed-files: 60
+
+      - name: Upload coverage report
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: build/reports/kover/
 
       - name: Upload test reports
         if: failure()
@@ -69,4 +97,3 @@ jobs:
         with:
           name: test-reports-${{ matrix.os }}
           path: '**/build/reports/tests/'
-

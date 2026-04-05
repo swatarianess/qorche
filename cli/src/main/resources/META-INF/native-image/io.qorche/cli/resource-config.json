@@ -1,7 +1,8 @@
 {
   "resources": {
     "includes": [
-      {"pattern": "io/qorche/cli/version.txt"}
+      {"pattern": "io/qorche/cli/version.txt"},
+      {"pattern": "io/qorche/cli/tasks.schema.json"}
     ]
   }
 }

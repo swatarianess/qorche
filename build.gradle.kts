@@ -3,6 +3,8 @@ plugins {
     kotlin("plugin.serialization") apply false
     id("org.graalvm.buildtools.native") version "0.10.6" apply false
     id("io.gitlab.arturbosch.detekt") version "1.23.7"
+    id("org.jetbrains.dokka") version "2.2.0"
+    id("org.jetbrains.kotlinx.kover") version "0.9.1"
 }
 
 val detektReportMergeSarif by tasks.registering(io.gitlab.arturbosch.detekt.report.ReportMergeTask::class) {
@@ -46,10 +48,73 @@ allprojects {
     }
 }
 
+dokka {
+    moduleName.set("Qorche")
+    dokkaPublications.html {
+        outputDirectory.set(layout.buildDirectory.dir("docs/html"))
+    }
+}
+
+dependencies {
+    dokka(project(":core"))
+    dokka(project(":agent"))
+    dokka(project(":cli"))
+    dokka(project(":native"))
+}
+
+// Aggregate coverage from all subprojects into a single report
+dependencies {
+    subprojects.filter { it.name != "native" }.forEach {
+        kover(it)
+    }
+}
+
+kover {
+    reports {
+        filters {
+            excludes {
+                // Real agent adapters — tested via opt-in integration tests, not unit tests
+                classes("io.qorche.agent.ClaudeCodeAdapter*", "io.qorche.agent.ShellRunner*")
+                // Test infrastructure — harnesses, mocks, fixtures
+                classes("io.qorche.cli.QorcheTestHarness*")
+                classes("io.qorche.agent.MockAgentRunner*")
+                // CLI entry point — just wiring, not logic
+                classes("io.qorche.cli.MainKt*")
+                // Terminal formatting — ANSI codes, not business logic
+                classes("io.qorche.cli.Terminal*")
+            }
+        }
+        total {
+            html {
+                onCheck = false
+                htmlDir = layout.buildDirectory.dir("reports/kover/html")
+            }
+            xml {
+                onCheck = false
+                xmlFile = layout.buildDirectory.file("reports/kover/report.xml")
+            }
+        }
+    }
+}
+
 subprojects {
     apply(plugin = "org.jetbrains.kotlin.jvm")
     apply(plugin = "org.jetbrains.kotlin.plugin.serialization")
     apply(plugin = "io.gitlab.arturbosch.detekt")
+    apply(plugin = "org.jetbrains.dokka")
+
+    if (name != "native") {
+        apply(plugin = "org.jetbrains.kotlinx.kover")
+    }
+
+    val moduleDoc = file("Module.md")
+    if (moduleDoc.exists()) {
+        configure<org.jetbrains.dokka.gradle.DokkaExtension> {
+            dokkaSourceSets.configureEach {
+                includes.from(moduleDoc)
+            }
+        }
+    }
 
     configure<org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension> {
         jvmToolchain(21)
@@ -96,6 +161,17 @@ subprojects {
             excludeTags("large-scale", "benchmark")
         }
         jvmArgs("-Xmx64m")
+    }
+
+    tasks.register<Test>("smokeTest") {
+        useJUnitPlatform {
+            includeTags("smoke")
+        }
+        jvmArgs("-Xmx64m")
+        group = "verification"
+        description = "Run smoke tests (integration tests for resolver, verify, replay)"
+        testClassesDirs = tasks.named<Test>("test").get().testClassesDirs
+        classpath = tasks.named<Test>("test").get().classpath
     }
 
     tasks.register<Test>("benchmark") {

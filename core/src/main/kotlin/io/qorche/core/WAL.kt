@@ -26,6 +26,7 @@ sealed class WALEntry {
     abstract val timestamp: Instant
     abstract val taskId: String
 
+    /** Logged when a task begins execution, before the agent is invoked. */
     @Serializable
     @SerialName("task_started")
     data class TaskStarted(
@@ -35,6 +36,7 @@ sealed class WALEntry {
         val snapshotId: String
     ) : WALEntry()
 
+    /** Logged when a task finishes successfully (exit code 0). */
     @Serializable
     @SerialName("task_completed")
     data class TaskCompleted(
@@ -45,6 +47,7 @@ sealed class WALEntry {
         val filesModified: List<String> = emptyList()
     ) : WALEntry()
 
+    /** Logged when a task fails (non-zero exit code or agent exception). */
     @Serializable
     @SerialName("task_failed")
     data class TaskFailed(
@@ -53,6 +56,7 @@ sealed class WALEntry {
         val error: String
     ) : WALEntry()
 
+    /** Logged when a task modifies files outside its declared scope. */
     @Serializable
     @SerialName("scope_violation")
     data class ScopeViolation(
@@ -62,6 +66,7 @@ sealed class WALEntry {
         val suspectTaskIds: List<String>
     ) : WALEntry()
 
+    /** Logged when a conflict loser is scheduled for retry after rollback. */
     @Serializable
     @SerialName("task_retry_scheduled")
     data class TaskRetryScheduled(
@@ -72,6 +77,7 @@ sealed class WALEntry {
         val conflictingFiles: List<String>
     ) : WALEntry()
 
+    /** Logged after a retry attempt completes, with the new after-snapshot ID. */
     @Serializable
     @SerialName("task_retried")
     data class TaskRetried(
@@ -81,6 +87,7 @@ sealed class WALEntry {
         val snapshotId: String
     ) : WALEntry()
 
+    /** Logged when two parallel tasks are found to have modified the same file(s). */
     @Serializable
     @SerialName("conflict_detected")
     data class ConflictDetected(
@@ -89,6 +96,18 @@ sealed class WALEntry {
         val conflictingTaskId: String,
         val conflictingFiles: List<String>,
         val baseSnapshotId: String
+    ) : WALEntry()
+
+    /** Logged when a verification step runs after a parallel group completes. */
+    @Serializable
+    @SerialName("verify_completed")
+    data class VerifyCompleted(
+        override val timestamp: Instant = Clock.System.now(),
+        override val taskId: String,
+        val success: Boolean,
+        val exitCode: Int,
+        val command: String,
+        val groupIndex: Int
     ) : WALEntry()
 }
 

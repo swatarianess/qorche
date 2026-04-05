@@ -934,6 +934,7 @@ class ParallelExecutionTest {
 
             assertEquals(1, result.completedTasks, "Only winner should complete")
             assertEquals(1, result.failedTasks, "Stubborn loser should fail after exhausting retries")
+            assertFalse(result.success, "GraphResult should report failure when a task exhausted retries")
             assertEquals(3, retryAttempts.size, "Should have retried 3 times")
             assertEquals(listOf(1, 2, 3), retryAttempts, "Retry attempts should be sequential")
 
@@ -941,6 +942,14 @@ class ParallelExecutionTest {
             assertEquals(TaskStatus.FAILED, loserOutcome.status)
             assertTrue(loserOutcome.skipReason!!.contains("3 retry attempts"))
             assertEquals(3, loserOutcome.retryCount)
+
+            // Verify WAL contains retry entries for the stubborn loser
+            val walEntries = orchestrator.walEntries()
+            val retryScheduled = walEntries.filterIsInstance<WALEntry.TaskRetryScheduled>()
+            assertEquals(3, retryScheduled.size, "WAL should have 3 retry-scheduled entries")
+            assertTrue(retryScheduled.all { it.taskId == "task-b" }, "All retries should be for task-b")
+            val retried = walEntries.filterIsInstance<WALEntry.TaskRetried>()
+            assertEquals(3, retried.size, "WAL should have 3 retried entries")
         } finally {
             root.toFile().deleteRecursively()
         }

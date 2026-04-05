@@ -72,11 +72,66 @@ data class RunnerConfig(
     val timeoutSeconds: Long = 300
 )
 
-/** Top-level YAML structure: a named project with an ordered list of task definitions. */
+/**
+ * Configuration for a post-execution verification step.
+ *
+ * After each parallel group completes (post-conflict resolution), the orchestrator
+ * can optionally run a verification command (test suite, type checker, linter) to
+ * validate that the merged state is correct.
+ *
+ * @property command Shell command to execute for verification.
+ * @property timeoutSeconds Maximum time in seconds before the verification is killed.
+ * @property onFailure Policy when verification fails: FAIL aborts the pipeline,
+ *   WARN logs the failure but continues execution.
+ */
+@Serializable
+data class VerifyConfig(
+    val command: String,
+    @SerialName("timeout_seconds")
+    val timeoutSeconds: Long = 300,
+    @SerialName("on_failure")
+    val onFailure: VerifyFailurePolicy = VerifyFailurePolicy.FAIL
+)
+
+/** What to do when a verification step fails. */
+@Serializable
+enum class VerifyFailurePolicy {
+    @SerialName("fail") FAIL,
+    @SerialName("warn") WARN
+}
+
+/**
+ * Result of running a verification step.
+ *
+ * @property success Whether the verification command exited with code 0.
+ * @property exitCode The process exit code.
+ * @property output Captured stdout/stderr from the verification command.
+ * @property elapsedMs Wall-clock time for the verification run.
+ * @property groupIndex Which parallel group triggered this verification (0-indexed).
+ */
+@Serializable
+data class VerifyResult(
+    val success: Boolean,
+    val exitCode: Int,
+    val output: String = "",
+    val elapsedMs: Long = 0,
+    val groupIndex: Int = 0
+)
+
+/**
+ * Top-level YAML structure: a named project with an ordered list of task definitions.
+ *
+ * @property defaultRunner Optional name of the runner to use for tasks that don't specify one.
+ *   Must reference a key in [runners]. When null, the shell runner is used as the default.
+ * @property verify Optional verification step run after each parallel group completes.
+ */
 @Serializable
 data class TaskProject(
     val project: String,
     val runners: Map<String, RunnerConfig> = emptyMap(),
+    @SerialName("default_runner")
+    val defaultRunner: String? = null,
+    val verify: VerifyConfig? = null,
     val tasks: List<TaskDefinition>
 )
 

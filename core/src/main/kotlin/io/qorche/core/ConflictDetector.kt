@@ -10,12 +10,14 @@ import kotlinx.serialization.Serializable
  */
 object ConflictDetector {
 
+    /** Controls whether and how many times conflict losers are retried. */
     @Serializable
     data class ConflictRetryPolicy(
         val defaultMaxRetries: Int = 1,
         val enabled: Boolean = true
     )
 
+    /** Result of pairwise conflict detection: files changed by both, only A, or only B. */
     @Serializable
     data class ConflictReport(
         val conflicts: Set<String>,

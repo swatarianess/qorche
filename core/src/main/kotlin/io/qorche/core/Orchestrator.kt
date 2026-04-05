@@ -47,7 +47,8 @@ class Orchestrator(private val workDir: Path) {
      * Aggregate result of executing an entire task graph.
      *
      * Contains per-task outcomes, detected conflicts, scope violations,
-     * and summary counters. [success] is true only when zero tasks failed.
+     * verification results, and summary counters. [success] is true only
+     * when zero tasks failed and no verification step caused a failure.
      */
     @Serializable
     data class GraphResult(
@@ -59,11 +60,13 @@ class Orchestrator(private val workDir: Path) {
         val skippedTasks: Int,
         val retriedTasks: Int = 0,
         val conflicts: List<ConflictDetector.TaskConflict> = emptyList(),
-        val scopeViolations: List<ConflictDetector.ScopeViolation> = emptyList()
+        val scopeViolations: List<ConflictDetector.ScopeViolation> = emptyList(),
+        val verifyResults: List<VerifyResult> = emptyList()
     ) {
-        val success: Boolean get() = failedTasks == 0
+        val success: Boolean get() = failedTasks == 0 && !hasVerifyFailure
         val hasConflicts: Boolean get() = conflicts.isNotEmpty()
         val hasScopeViolations: Boolean get() = scopeViolations.isNotEmpty()
+        val hasVerifyFailure: Boolean get() = verifyResults.any { !it.success }
     }
 
     /**
@@ -212,6 +215,10 @@ class Orchestrator(private val workDir: Path) {
      * MVCC conflict detection checks for write-write conflicts. On conflict,
      * the earlier task in group order wins; losers are retried sequentially
      * against the updated filesystem (up to [retryPolicy] limits).
+     *
+     * @param runners Named runner registry. Tasks with a `runner` field are dispatched
+     *   to the corresponding entry; all others use [runner] as the default.
+     * @param verifyConfig Optional verification step run after each parallel group.
      */
     /**
      * @param runners Named runner registry. Tasks with a `runner` field are dispatched
@@ -223,18 +230,22 @@ class Orchestrator(private val workDir: Path) {
         runner: AgentRunner,
         runners: Map<String, AgentRunner> = emptyMap(),
         retryPolicy: ConflictDetector.ConflictRetryPolicy = ConflictDetector.ConflictRetryPolicy(),
+        verifyConfig: VerifyConfig? = null,
         onTaskStart: (TaskDefinition) -> Unit = {},
         onTaskComplete: (String, TaskOutcome) -> Unit = { _, _ -> },
         onConflict: (ConflictDetector.TaskConflict) -> Unit = {},
         onRetry: (taskId: String, attempt: Int, conflictWith: String, conflictingFiles: Set<String>) -> Unit = { _, _, _, _ -> },
         onScopeViolation: (ConflictDetector.ScopeViolation) -> Unit = {},
+        onVerify: (VerifyResult) -> Unit = {},
         onOutput: (String) -> Unit = {}
     ): GraphResult {
         val outcomes = mutableMapOf<String, TaskOutcome>()
         val failedTasks = mutableSetOf<String>()
         val allConflicts = mutableListOf<ConflictDetector.TaskConflict>()
         val allScopeViolations = mutableListOf<ConflictDetector.ScopeViolation>()
+        val allVerifyResults = mutableListOf<VerifyResult>()
         var totalRetries = 0
+        var groupIndex = 0
         val walMutex = Mutex()
 
         for (group in graph.parallelGroups()) {
@@ -248,6 +259,25 @@ class Orchestrator(private val workDir: Path) {
                 outcomes[taskId] = outcome
                 if (outcome.status == TaskStatus.FAILED) failedTasks.add(taskId)
                 onTaskComplete(taskId, outcome)
+
+                // Run verification after single-task group if configured
+                if (verifyConfig != null && outcome.status == TaskStatus.COMPLETED) {
+                    val verifyResult = runVerification(verifyConfig, groupIndex)
+                    allVerifyResults.add(verifyResult)
+                    onVerify(verifyResult)
+                    walWriter.append(WALEntry.VerifyCompleted(
+                        taskId = "verify-group-$groupIndex",
+                        success = verifyResult.success,
+                        exitCode = verifyResult.exitCode,
+                        command = verifyConfig.command,
+                        groupIndex = groupIndex
+                    ))
+                    if (!verifyResult.success && verifyConfig.onFailure == VerifyFailurePolicy.FAIL) {
+                        break
+                    }
+                }
+
+                groupIndex++
                 continue
             }
 
@@ -304,6 +334,27 @@ class Orchestrator(private val workDir: Path) {
             }
 
             auditScopeViolations(runnableTasks, graph, baseSnapshot, changesByTask, allScopeViolations, onScopeViolation)
+
+            // Run verification step after each parallel group if configured
+            if (verifyConfig != null) {
+                val verifyResult = runVerification(verifyConfig, groupIndex)
+                allVerifyResults.add(verifyResult)
+                onVerify(verifyResult)
+                walWriter.append(WALEntry.VerifyCompleted(
+                    taskId = "verify-group-$groupIndex",
+                    success = verifyResult.success,
+                    exitCode = verifyResult.exitCode,
+                    command = verifyConfig.command,
+                    groupIndex = groupIndex
+                ))
+
+                if (!verifyResult.success && verifyConfig.onFailure == VerifyFailurePolicy.FAIL) {
+                    // Mark all remaining tasks as skipped
+                    break
+                }
+            }
+
+            groupIndex++
         }
 
         fileIndex.saveTo(fileIndexPath)
@@ -318,7 +369,8 @@ class Orchestrator(private val workDir: Path) {
             skippedTasks = allNodes.count { it.status == TaskStatus.SKIPPED },
             retriedTasks = totalRetries,
             conflicts = allConflicts,
-            scopeViolations = allScopeViolations
+            scopeViolations = allScopeViolations,
+            verifyResults = allVerifyResults
         )
     }
 
@@ -755,16 +807,83 @@ class Orchestrator(private val workDir: Path) {
         }
     }
 
+    /**
+     * Run a verification command and capture its result.
+     *
+     * The command is executed as a shell process in the working directory.
+     * Stdout and stderr are captured for logging. The process is killed if
+     * it exceeds the configured timeout.
+     */
+    private fun runVerification(config: VerifyConfig, groupIndex: Int): VerifyResult {
+        val startNanos = System.nanoTime()
+        try {
+            val isWindows = System.getProperty("os.name").lowercase().contains("win")
+            val command = if (isWindows) {
+                listOf("cmd", "/c", config.command)
+            } else {
+                listOf("sh", "-c", config.command)
+            }
+
+            val process = ProcessBuilder(command)
+                .directory(workDir.toFile())
+                .redirectErrorStream(true)
+                .start()
+
+            val output = StringBuilder()
+            process.inputStream.bufferedReader().use { reader ->
+                reader.lineSequence().forEach { line ->
+                    output.appendLine(line)
+                }
+            }
+
+            val completed = process.waitFor(config.timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+            val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000
+
+            if (!completed) {
+                process.destroyForcibly()
+                return VerifyResult(
+                    success = false,
+                    exitCode = -1,
+                    output = output.toString() + "\n[TIMEOUT after ${config.timeoutSeconds}s]",
+                    elapsedMs = elapsedMs,
+                    groupIndex = groupIndex
+                )
+            }
+
+            val exitCode = process.exitValue()
+            return VerifyResult(
+                success = exitCode == 0,
+                exitCode = exitCode,
+                output = output.toString(),
+                elapsedMs = elapsedMs,
+                groupIndex = groupIndex
+            )
+        } catch (e: Exception) {
+            val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000
+            return VerifyResult(
+                success = false,
+                exitCode = -1,
+                output = "Verification failed: ${e.message}",
+                elapsedMs = elapsedMs,
+                groupIndex = groupIndex
+            )
+        }
+    }
+
+    /** Returns all stored snapshots, ordered by timestamp (most recent first). */
     fun history(): List<Snapshot> = snapshotStore.list()
 
+    /** Loads a snapshot by its full or prefix ID, or null if not found. */
     fun loadSnapshot(id: String): Snapshot? = snapshotStore.load(id)
 
+    /** Computes the file-level diff between two snapshots, or null if either is not found. */
     fun diffSnapshots(id1: String, id2: String): SnapshotDiff? {
         val snap1 = snapshotStore.load(id1) ?: return null
         val snap2 = snapshotStore.load(id2) ?: return null
         return SnapshotCreator.diff(snap1, snap2)
     }
 
+    /** Reads all WAL entries from the append-only log. */
     fun walEntries(): List<WALEntry> = walWriter.readAll()
 
     /**

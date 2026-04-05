@@ -240,6 +240,129 @@ class TaskYamlParserTest {
     }
 
     @Test
+    fun `parse default_runner field`() {
+        val yaml = """
+            project: with-default
+            runners:
+              claude:
+                type: claude-code
+            default_runner: claude
+            tasks:
+              - id: task-1
+                instruction: "Do something"
+        """.trimIndent()
+
+        val project = TaskYamlParser.parse(yaml)
+        assertEquals("claude", project.defaultRunner)
+    }
+
+    @Test
+    fun `parse rejects undefined default_runner`() {
+        val yaml = """
+            project: bad-default
+            runners:
+              shell:
+                type: shell
+                allowed_commands: [npm]
+            default_runner: nonexistent
+            tasks:
+              - id: task-1
+                instruction: "Do something"
+        """.trimIndent()
+
+        val ex = assertFailsWith<TaskParseException> {
+            TaskYamlParser.parse(yaml)
+        }
+        assertTrue(ex.message!!.contains("nonexistent"))
+    }
+
+    @Test
+    fun `parse default_runner null when omitted`() {
+        val yaml = """
+            project: no-default
+            tasks:
+              - id: task-1
+                instruction: "Do something"
+        """.trimIndent()
+
+        val project = TaskYamlParser.parse(yaml)
+        assertEquals(null, project.defaultRunner)
+    }
+
+    @Test
+    fun `encode omits default fields for clean output`() {
+        val project = TaskProject(
+            project = "my-project",
+            tasks = listOf(
+                TaskDefinition(id = "lint", instruction = "Run linter", files = listOf("src/")),
+                TaskDefinition(id = "test", instruction = "Run tests", files = listOf("src/", "test/")),
+                TaskDefinition(id = "build", instruction = "Build project", dependsOn = listOf("lint", "test"))
+            )
+        )
+
+        val yaml = TaskYamlParser.encode(project)
+
+        // Should contain the essential fields
+        assertTrue(yaml.contains("project: \"my-project\""))
+        assertTrue(yaml.contains("id: \"lint\""))
+        assertTrue(yaml.contains("instruction: \"Run linter\""))
+
+        // Should NOT contain default fields
+        assertTrue(!yaml.contains("runners"), "Should not contain empty runners map")
+        assertTrue(!yaml.contains("default_runner"), "Should not contain null default_runner")
+        assertTrue(!yaml.contains("verify"), "Should not contain null verify")
+        assertTrue(!yaml.contains("type:"), "Should not contain default type field")
+        assertTrue(!yaml.contains("max_retries"), "Should not contain default max_retries")
+        assertTrue(!yaml.contains("runner:"), "Should not contain null runner field")
+    }
+
+    @Test
+    fun `encode round-trips through parse`() {
+        val original = TaskProject(
+            project = "round-trip",
+            tasks = listOf(
+                TaskDefinition(id = "a", instruction = "first", files = listOf("src/")),
+                TaskDefinition(id = "b", instruction = "second", dependsOn = listOf("a"))
+            )
+        )
+
+        val yaml = TaskYamlParser.encode(original)
+        val parsed = TaskYamlParser.parse(yaml)
+
+        assertEquals(original.project, parsed.project)
+        assertEquals(original.tasks.size, parsed.tasks.size)
+        assertEquals(original.tasks[0].id, parsed.tasks[0].id)
+        assertEquals(original.tasks[0].files, parsed.tasks[0].files)
+        assertEquals(original.tasks[1].dependsOn, parsed.tasks[1].dependsOn)
+    }
+
+    @Test
+    fun `encode includes non-default fields`() {
+        val project = TaskProject(
+            project = "with-runners",
+            runners = mapOf("claude" to RunnerConfig(type = "claude-code")),
+            defaultRunner = "claude",
+            tasks = listOf(
+                TaskDefinition(
+                    id = "task-1",
+                    instruction = "Do work",
+                    type = TaskType.EXPLORE,
+                    maxRetries = 3,
+                    runner = "claude"
+                )
+            )
+        )
+
+        val yaml = TaskYamlParser.encode(project)
+
+        assertTrue(yaml.contains("runners"))
+        assertTrue(yaml.contains("default_runner"))
+        assertTrue(yaml.contains("type: \"explore\""))
+        assertTrue(yaml.contains("max_retries: 3"))
+        assertTrue(yaml.contains("runner: \"claude\""))
+    }
+
+    @Test
     fun `parallel groups identified correctly`() {
         val yaml = """
             project: test

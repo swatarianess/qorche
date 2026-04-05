@@ -4,6 +4,7 @@ plugins {
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":agent"))
     compileOnly("org.graalvm.sdk:nativeimage:24.2.1")
 }
 

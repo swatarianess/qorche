@@ -1,0 +1,4 @@
+project: test
+tasks:
+  - id: task1
+    instruction: do thing

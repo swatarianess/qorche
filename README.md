@@ -25,10 +25,30 @@ If you're running parallel agents today, you're probably using git worktrees + t
 
 ## Quick start
 
-```bash
-# Install (download native binary, no JVM required)
-# https://github.com/swatarianess/qorche/releases
+### Install
 
+**Linux / macOS**
+```bash
+# Download the latest release
+curl -fsSL -o qorche https://github.com/swatarianess/qorche/releases/latest/download/qorche-linux-amd64
+chmod +x qorche
+sudo mv qorche /usr/local/bin/
+```
+
+**Windows (PowerShell)**
+```powershell
+Invoke-WebRequest -Uri https://github.com/swatarianess/qorche/releases/latest/download/qorche-windows-amd64.exe -OutFile qorche.exe
+Move-Item qorche.exe "$env:LOCALAPPDATA\Microsoft\WindowsApps\"
+```
+
+**Verify**
+```bash
+qorche version
+```
+
+### Usage
+
+```bash
 # Initialize a new project (detects language, generates tasks.yaml + .qorignore)
 qorche init
 
@@ -111,11 +131,11 @@ tasks:
 
   - id: review
     instruction: "Final review of changes"
-    # no runner = uses default CLI runner
+    # no runner = uses default_runner (shell if not set)
     depends_on: [analyze, run-tests]
 ```
 
-Supported runner types: `claude-code`, `shell`. Tasks without a `runner` field use the default CLI runner (Claude Code).
+Supported runner types: `claude-code`, `shell`. Tasks without a `runner` field use `default_runner`. If `default_runner` is not set, the shell runner is used.
 
 ## Terminal output
 
@@ -170,6 +190,87 @@ Total time: 47230ms
 5. **Retry** losers automatically against updated filesystem state (configurable via `max_retries`, deterministic winner by YAML order)
 6. **Audit** scope violations when workers write outside their declared file scope
 7. **Log** everything to `.qorche/wal.jsonl`, complete audit trail for replay and debugging
+
+## Architecture
+
+### System Context (C4 Level 1)
+
+```mermaid
+graph TB
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef external fill:#999,stroke:#666,color:#fff
+
+    Dev["<b>Developer</b><br/><i>Defines tasks in YAML<br/>and invokes Qorche</i>"]:::person
+
+    subgraph Qorche_System [" "]
+        Q["<b>Qorche</b><br/><i>Deterministic orchestrator for<br/>concurrent filesystem mutations.<br/>Coordinates workers via MVCC snapshots,<br/>DAG scheduling, and conflict detection.</i>"]:::system
+    end
+
+    Agents["<b>Workers</b><br/><i>Any process that modifies files:<br/>LLM agents, shell commands,<br/>build tools, formatters</i>"]:::external
+    FS["<b>Filesystem</b><br/><i>Working directory where<br/>all mutations occur</i>"]:::external
+    YAML["<b>tasks.yaml</b><br/><i>Task definitions, dependencies,<br/>file scopes, runner configs</i>"]:::external
+
+    Dev -->|"runs commands<br/>via CLI or library"| Q
+    Dev -->|"authors"| YAML
+    YAML -->|"parsed by"| Q
+    Q -->|"spawns and<br/>manages"| Agents
+    Q -->|"snapshots, hashes,<br/>and monitors"| FS
+    Agents -->|"modify files in"| FS
+```
+
+### Container Diagram (C4 Level 2)
+
+```mermaid
+graph TB
+    classDef person fill:#08427b,stroke:#052e56,color:#fff
+    classDef core fill:#1168bd,stroke:#0b4884,color:#fff
+    classDef agent fill:#438dd5,stroke:#2e6295,color:#fff
+    classDef cli fill:#2694ab,stroke:#1a6d7d,color:#fff
+    classDef native fill:#2b78e4,stroke:#1a5591,color:#fff
+    classDef external fill:#999,stroke:#666,color:#fff
+    classDef store fill:#555,stroke:#333,color:#fff
+
+    Dev["<b>Developer</b><br/><i>Defines tasks and invokes Qorche</i>"]:::person
+
+    subgraph Qorche ["Qorche System"]
+        direction TB
+
+        CLI["<b>cli/</b><br/><i>Command-Line Interface</i><br/>Clikt commands: run, plan,<br/>history, diff, clean, schema"]:::cli
+
+        Agent["<b>agent/</b><br/><i>Runner Implementations</i><br/>ClaudeCodeAdapter, ShellRunner,<br/>MockAgentRunner, RunnerRegistry"]:::agent
+
+        Core["<b>core/</b><br/><i>Orchestration Engine</i><br/>Orchestrator, TaskGraph, SnapshotCreator,<br/>ConflictDetector, WALWriter, FileIndex"]:::core
+
+        Native["<b>native/</b><br/><i>GraalVM Shared Library</i><br/>C-compatible FFI for embedding<br/>in non-JVM languages"]:::native
+    end
+
+    Workers["<b>Workers</b><br/><i>LLM agents, shell commands,<br/>build tools, formatters</i>"]:::external
+
+    subgraph Storage [".qorche/ Local Data"]
+        direction LR
+        Snaps["<b>snapshots/</b><br/><i>JSON snapshot files</i>"]:::store
+        WAL["<b>wal.jsonl</b><br/><i>Write-ahead log</i>"]:::store
+        FIdx["<b>file-index.json</b><br/><i>mtime/hash cache</i>"]:::store
+        Logs["<b>logs/</b><br/><i>Per-task agent output</i>"]:::store
+    end
+
+    FS["<b>Filesystem</b><br/><i>Working directory</i>"]:::external
+    YAML["<b>tasks.yaml</b><br/><i>Task definitions</i>"]:::external
+
+    Dev -->|"invokes"| CLI
+    Dev -->|"authors"| YAML
+    YAML -->|"parsed by"| CLI
+    CLI -->|"dispatches tasks to"| Core
+    CLI -->|"builds runners via"| Agent
+    Agent -->|"implements AgentRunner<br/>interface defined in"| Core
+    Agent -->|"spawns and manages"| Workers
+    Native -->|"exposes FFI bindings for"| Core
+    Native -->|"uses built-in runners from"| Agent
+    Core -->|"reads/writes"| Storage
+    Core -->|"snapshots and monitors"| FS
+    Workers -->|"modify files in"| FS
+```
 
 ## Correctness & Guarantees
 
@@ -299,9 +400,35 @@ print(f"Project: {data['project']}, Tasks: {data['task_count']}")
 | `history`  | List past snapshots                                                        |
 | `diff`     | Show file changes between two snapshots                                    |
 | `clean`    | Remove stored data from .qorche/                                           |
+| `schema`   | Print JSON Schema for tasks.yaml (editor autocomplete and validation)      |
 | `version`  | Print version                                                              |
 
 JSON output available via `--output json` on `run` and `plan` commands.
+
+## Exit codes
+
+| Code | Name | Meaning |
+|------|------|---------|
+| 0 | Success | All tasks completed without conflicts |
+| 1 | Task failure | One or more agents returned a non-zero exit code |
+| 2 | Config error | Invalid YAML, dependency cycle, unknown runner, or missing file |
+| 3 | Conflict | Unresolved file conflicts after exhausting retries |
+
+CI pipelines can switch on `$?` to handle each case differently.
+
+### Editor integration
+
+Use `qorche schema` to get autocomplete and validation in your editor:
+
+```bash
+# Add modeline to your tasks.yaml
+# yaml-language-server: $schema=https://qorche.dev/schema/tasks.json
+
+# Or export locally for offline use
+qorche schema --output .qorche/tasks.schema.json
+```
+
+Supports VS Code (Red Hat YAML), IntelliJ (native), and nvim (yaml-language-server).
 
 ## Project structure
 
@@ -309,7 +436,7 @@ JSON output available via `--output json` on `run` and `plan` commands.
 qorche/
 ├── core/       # Orchestrator, snapshots, MVCC, DAG, WAL (zero domain-specific deps)
 ├── agent/      # Runner implementations (MockAgentRunner, ShellRunner, ClaudeCodeAdapter)
-├── cli/        # CLI entry point via Clikt (run, plan, init, validate, status, logs, diff, clean)
+├── cli/        # CLI entry point via Clikt (run, plan, init, validate, status, logs, diff, clean, schema)
 └── native/     # Shared library (libqorche) via GraalVM --shared, C FFI entry points
 ```
 
@@ -327,12 +454,20 @@ Module boundaries are strict: `core/` depends on nothing, `agent/` depends on `c
 
 ## Requirements
 
-- JDK 21+ (for building from source)
-- Or download a [pre-built native binary](https://github.com/swatarianess/qorche/releases) (no JVM required)
+Pre-built native binaries require no runtime dependencies.
+Building from source requires JDK 21+.
 
 ## Contributing
 
-Contributions welcome. See [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions, architecture overview, and coding conventions. The project uses `CLAUDE.md` files in each module for Claude Code integration, these are also useful as quick-reference guides for any contributor.
+Contributions welcome. Before submitting a PR:
+
+- Read [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions, architecture overview, and module structure
+- Read [CLAUDE.md](CLAUDE.md) for project conventions, architecture constraints (GraalVM, cross-platform, module boundaries), and coding style
+- Read [TESTING.md](TESTING.md) for test infrastructure, running benchmarks, and writing new tests
+- Run `./gradlew test detekt` and ensure both pass before opening a PR
+- Keep module boundaries strict: `core/` has zero external dependencies, `agent/` depends only on `core/`
+
+This project is licensed under Apache 2.0. By contributing, you agree that your contributions will be licensed under the same terms.
 
 ## License
 

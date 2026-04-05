@@ -8,7 +8,10 @@ import com.github.ajalt.clikt.parameters.types.int
 import io.qorche.core.Orchestrator
 import java.nio.file.Path
 
-class CleanCommand : CliktCommand(name = "clean") {
+class CleanCommand(
+    internal val workDirProvider: () -> Path = { Path.of(System.getProperty("user.dir")) },
+    internal val orchestratorFactory: (Path) -> Orchestrator = ::Orchestrator
+) : CliktCommand(name = "clean") {
     override fun help(context: com.github.ajalt.clikt.core.Context) = "Remove stored data from the .qorche/ directory"
 
     private val all by option("--all", help = "Remove all stored data (default if no flags specified)").flag()
@@ -19,8 +22,8 @@ class CleanCommand : CliktCommand(name = "clean") {
     private val keepLast by option("--keep-last", help = "Keep the N most recent snapshots").int().default(0)
 
     override fun run() {
-        val workDir = Path.of(System.getProperty("user.dir"))
-        val orchestrator = Orchestrator(workDir)
+        val workDir = workDirProvider()
+        val orchestrator = orchestratorFactory(workDir)
 
         val cleanAll = all || (!snapshots && !logs && !wal && !cache)
 

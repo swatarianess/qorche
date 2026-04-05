@@ -10,6 +10,14 @@ import kotlinx.coroutines.flow.flowOn
 import java.nio.file.Files
 import java.nio.file.Path
 
+/**
+ * Test-only [AgentRunner] that simulates agent behaviour without invoking external processes.
+ *
+ * @param filesToTouch Relative paths to create or modify during execution.
+ * @param delayMs Simulated execution time in milliseconds.
+ * @param shouldFail When true, the agent emits an error and exits with code 1.
+ * @param failMessage Error message used when [shouldFail] is true.
+ */
 class MockAgentRunner(
     private val filesToTouch: List<String> = emptyList(),
     private val delayMs: Long = 100,
