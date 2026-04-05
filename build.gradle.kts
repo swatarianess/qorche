@@ -4,6 +4,7 @@ plugins {
     id("org.graalvm.buildtools.native") version "0.10.6" apply false
     id("io.gitlab.arturbosch.detekt") version "1.23.7"
     id("org.jetbrains.dokka") version "2.2.0"
+    id("org.jetbrains.kotlinx.kover") version "0.9.1"
 }
 
 val detektReportMergeSarif by tasks.registering(io.gitlab.arturbosch.detekt.report.ReportMergeTask::class) {
@@ -61,11 +62,37 @@ dependencies {
     dokka(project(":native"))
 }
 
+// Aggregate coverage from all subprojects into a single report
+dependencies {
+    subprojects.filter { it.name != "native" }.forEach {
+        kover(it)
+    }
+}
+
+kover {
+    reports {
+        total {
+            html {
+                onCheck = false
+                htmlDir = layout.buildDirectory.dir("reports/kover/html")
+            }
+            xml {
+                onCheck = false
+                xmlFile = layout.buildDirectory.file("reports/kover/report.xml")
+            }
+        }
+    }
+}
+
 subprojects {
     apply(plugin = "org.jetbrains.kotlin.jvm")
     apply(plugin = "org.jetbrains.kotlin.plugin.serialization")
     apply(plugin = "io.gitlab.arturbosch.detekt")
     apply(plugin = "org.jetbrains.dokka")
+
+    if (name != "native") {
+        apply(plugin = "org.jetbrains.kotlinx.kover")
+    }
 
     val moduleDoc = file("Module.md")
     if (moduleDoc.exists()) {
