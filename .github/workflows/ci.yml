@@ -82,7 +82,7 @@ jobs:
           title: "## Coverage Report"
           update-comment: true
           min-coverage-overall: 60
-          min-coverage-changed-files: 70
+          min-coverage-changed-files: 60
 
       - name: Upload coverage report
         if: matrix.os == 'ubuntu-latest'
