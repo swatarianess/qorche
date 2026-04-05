@@ -14,22 +14,12 @@ import io.qorche.agent.ClaudeCodeAdapter
 import io.qorche.agent.RunnerRegistry
 import io.qorche.agent.ShellRunner
 import io.qorche.core.ExitCode
-import io.qorche.core.HashAlgorithm
 import io.qorche.core.Orchestrator
 import io.qorche.core.SnapshotCreator
 import io.qorche.core.TaskStatus
 import io.qorche.core.WALEntry
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
-
-internal fun formatElapsed(ms: Long): String = when {
-    ms >= 1000 -> "%.1fs".format(ms / 1000.0)
-    else -> "${ms}ms"
-}
-
-private fun cliVersion(): String =
-    object {}.javaClass.getResourceAsStream("/io/qorche/cli/version.txt")
-        ?.bufferedReader()?.readText()?.trim() ?: "dev"
 
 class QorcheCommand : CliktCommand(name = "qorche") {
     override fun help(context: com.github.ajalt.clikt.core.Context) = "Orchestrate concurrent filesystem mutations with MVCC conflict detection"
@@ -63,11 +53,7 @@ class RunCommand : CliktCommand(name = "run") {
 
     override fun run() {
         val hashExplicit = hashAlgorithm != null
-        SnapshotCreator.hashAlgorithm = when (hashAlgorithm?.lowercase()) {
-            "crc32c", "crc32" -> HashAlgorithm.CRC32C
-            "sha256", "sha-256" -> HashAlgorithm.SHA256
-            else -> HashAlgorithm.SHA1
-        }
+        SnapshotCreator.hashAlgorithm = parseHashAlgorithm(hashAlgorithm)
         val workDir = Path.of(System.getProperty("user.dir"))
         val orchestrator = Orchestrator(workDir)
         if (output == "text") {
@@ -90,9 +76,7 @@ class RunCommand : CliktCommand(name = "run") {
             }
         }
 
-        val isYamlFile = instructionOrFile.endsWith(".yaml") || instructionOrFile.endsWith(".yml")
-
-        if (isYamlFile) {
+        if (isYamlFile(instructionOrFile)) {
             runGraphFromFile(workDir, orchestrator, startTime)
         } else {
             val extraArgs = if (skipPermissions) listOf("--dangerously-skip-permissions") else emptyList()

@@ -2,6 +2,7 @@ package io.qorche.cli
 
 import io.qorche.core.CycleDetectedException
 import io.qorche.core.ExitCode
+import io.qorche.core.HashAlgorithm
 import io.qorche.core.Orchestrator
 import io.qorche.core.Snapshot
 import io.qorche.core.SnapshotCreator
@@ -13,6 +14,26 @@ import io.qorche.core.TaskYamlParser
 import io.qorche.core.VerifyConfig
 import io.qorche.core.WALEntry
 import java.nio.file.Path
+
+// --- Utilities ---
+
+internal fun formatElapsed(ms: Long): String = when {
+    ms >= 1000 -> "%.1fs".format(ms / 1000.0)
+    else -> "${ms}ms"
+}
+
+internal fun cliVersion(): String =
+    object {}.javaClass.getResourceAsStream("/io/qorche/cli/version.txt")
+        ?.bufferedReader()?.readText()?.trim() ?: "dev"
+
+internal fun parseHashAlgorithm(raw: String?): HashAlgorithm = when (raw?.lowercase()) {
+    "crc32c", "crc32" -> HashAlgorithm.CRC32C
+    "sha256", "sha-256" -> HashAlgorithm.SHA256
+    else -> HashAlgorithm.SHA1
+}
+
+internal fun isYamlFile(path: String): Boolean =
+    path.endsWith(".yaml") || path.endsWith(".yml")
 
 // --- Shared: YAML loading ---
 

@@ -206,3 +206,34 @@ Existing YAML files without `runners` or per-task `runner` fields work unchanged
 - Releases triggered by semantic-release on merge to `main`
 - Native binaries built for Linux (amd64), Windows (amd64), and macOS (arm64) on tagged releases
 - Linux binaries compressed with UPX for smaller download size
+
+## Versioning
+
+Qorche uses [semantic-release](https://github.com/semantic-release/semantic-release) for automated versioning, configured in `.releaserc.json`.
+
+### Branch strategy
+
+- **`main`** — the only release branch. Merges to `main` trigger semantic-release which computes the next version from commit messages, creates a Git tag, and publishes a GitHub release with native binaries.
+- **`develop`** — integration branch. Feature branches merge here via PR. Does NOT trigger releases.
+- **Feature branches** — branch from `develop`, PR back to `develop`.
+
+### Version scheme
+
+We follow semver and are currently in `0.x` (pre-stable). The version will stay at `0.x.y` until an explicit decision to go `1.0`.
+
+| Commit prefix | Version bump | Example |
+|--------------|-------------|---------|
+| `feat:` | Minor (0.1.0 → 0.2.0) | New command, new API |
+| `fix:` | Patch (0.1.0 → 0.1.1) | Bug fix |
+| `perf:` | Patch | Performance improvement |
+| `revert:` | Patch | Reverted commit |
+| `BREAKING CHANGE` in footer | Major (0.x → 1.0.0) | API removal, format change |
+
+Other commit types (`refactor:`, `test:`, `docs:`, `chore:`, `ci:`) do **not** trigger releases.
+
+### Important rules
+
+- Do **not** add `develop` as a release branch in `.releaserc.json` — this previously caused an erroneous `v1.0.0-beta.1` prerelease because semantic-release treated `feat:` commits on develop as triggering a version bump
+- Do **not** use `BREAKING CHANGE` in commit footers unless you genuinely intend a major version bump
+- The release workflow (`.github/workflows/release.yml`) only runs on pushes to `main`
+- Tags follow the format `v${version}` (e.g., `v0.2.0`)

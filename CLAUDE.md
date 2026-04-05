@@ -140,6 +140,16 @@ in core/ and implement it in the appropriate module.
   before committing. If a finding is a false positive, add it to the module's
   `detekt-baseline.xml` rather than suppressing inline.
 
+## Versioning and releases
+- Semantic-release runs on `main` only (not develop or feature branches)
+- Release workflow: `.github/workflows/release.yml`, config: `.releaserc.json`
+- Version scheme: semver `0.x.y` during early development — no `1.0` until explicit decision
+- Commit types: `feat:` → minor bump, `fix:`/`perf:`/`revert:` → patch, `BREAKING CHANGE` → major
+- `develop` branch is for integration — PRs merge here first, then promote to `main`
+- Never force-push tags or delete releases without coordinating
+- The erroneous `v1.0.0-beta.1` tag/release from the develop prerelease channel
+  was removed when we switched to main-only releases
+
 ## Local data directory
 - `.qorche/` is the local data store (similar to `.git/`)
 - `.qorche/snapshots/` — snapshot files (JSON)
