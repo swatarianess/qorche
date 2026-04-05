@@ -43,6 +43,17 @@ class InitCommandTest {
     }
 
     @Test
+    fun `detects Python project via requirements txt`() {
+        val root = Files.createTempDirectory("qorche-init-test")
+        try {
+            root.resolve("requirements.txt").writeText("flask>=2.0")
+            assertEquals(ProjectType.PYTHON, detectProjectType(root))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun `detects Rust project`() {
         val root = Files.createTempDirectory("qorche-init-test")
         try {

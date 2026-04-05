@@ -3,5 +3,6 @@
   <ManuallySuppressedIssues></ManuallySuppressedIssues>
   <CurrentIssues>
     <ID>TooGenericExceptionCaught:QorcheApi.kt$QorcheApi$e: Exception</ID>
+    <ID>TooManyFunctions:QorcheApi.kt$QorcheApi</ID>
   </CurrentIssues>
 </SmellBaseline>

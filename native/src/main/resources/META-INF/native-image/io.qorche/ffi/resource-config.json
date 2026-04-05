@@ -1,0 +1,8 @@
+{
+  "resources": {
+    "includes": [
+      {"pattern": "io/qorche/ffi/version.txt"},
+      {"pattern": "io/qorche/ffi/tasks.schema.json"}
+    ]
+  }
+}

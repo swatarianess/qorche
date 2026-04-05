@@ -38,7 +38,13 @@ public final class LibQorcheEntryPoints {
         return toCString(QorcheApi.INSTANCE.version());
     }
 
-    // ── Validation & Planning ──────────────────────────────────
+    // ── YAML & Planning ─────────────────────────────────────────
+
+    @CEntryPoint(name = "qorche_parse_yaml")
+    public static CCharPointer parseYaml(IsolateThread thread, CCharPointer yamlPath) {
+        String path = CTypeConversion.toJavaString(yamlPath);
+        return toCString(QorcheApi.INSTANCE.parseYaml(path));
+    }
 
     @CEntryPoint(name = "qorche_validate_yaml")
     public static CCharPointer validateYaml(IsolateThread thread, CCharPointer yamlPath) {
@@ -50,6 +56,11 @@ public final class LibQorcheEntryPoints {
     public static CCharPointer plan(IsolateThread thread, CCharPointer yamlPath) {
         String path = CTypeConversion.toJavaString(yamlPath);
         return toCString(QorcheApi.INSTANCE.plan(path));
+    }
+
+    @CEntryPoint(name = "qorche_schema")
+    public static CCharPointer schema(IsolateThread thread) {
+        return toCString(QorcheApi.INSTANCE.schema());
     }
 
     // ── Snapshots ──────────────────────────────────────────────
@@ -70,6 +81,20 @@ public final class LibQorcheEntryPoints {
         return toCString(QorcheApi.INSTANCE.diff(workDir, id1, id2));
     }
 
+    // ── Snapshots & History ──────────────────────────────────────
+
+    @CEntryPoint(name = "qorche_list_snapshots")
+    public static CCharPointer listSnapshots(IsolateThread thread, CCharPointer workDirPath) {
+        String workDir = CTypeConversion.toJavaString(workDirPath);
+        return toCString(QorcheApi.INSTANCE.listSnapshots(workDir));
+    }
+
+    @CEntryPoint(name = "qorche_wal_entries")
+    public static CCharPointer walEntries(IsolateThread thread, CCharPointer workDirPath) {
+        String workDir = CTypeConversion.toJavaString(workDirPath);
+        return toCString(QorcheApi.INSTANCE.walEntries(workDir));
+    }
+
     // ── Execution ──────────────────────────────────────────────
 
     @CEntryPoint(name = "qorche_run")
@@ -77,6 +102,15 @@ public final class LibQorcheEntryPoints {
         String yaml = CTypeConversion.toJavaString(yamlPath);
         String workDir = CTypeConversion.toJavaString(workDirPath);
         return toCString(QorcheApi.INSTANCE.run(yaml, workDir));
+    }
+
+    // ── Maintenance ────────────────────────────────────────────
+
+    @CEntryPoint(name = "qorche_clean")
+    public static CCharPointer clean(IsolateThread thread, CCharPointer workDirPath, CCharPointer optionsJson) {
+        String workDir = CTypeConversion.toJavaString(workDirPath);
+        String options = CTypeConversion.toJavaString(optionsJson);
+        return toCString(QorcheApi.INSTANCE.clean(workDir, options));
     }
 
     // ── Memory ─────────────────────────────────────────────────
