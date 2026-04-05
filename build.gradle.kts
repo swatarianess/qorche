@@ -71,6 +71,19 @@ dependencies {
 
 kover {
     reports {
+        filters {
+            excludes {
+                // Real agent adapters — tested via opt-in integration tests, not unit tests
+                classes("io.qorche.agent.ClaudeCodeAdapter*", "io.qorche.agent.ShellRunner*")
+                // Test infrastructure — harnesses, mocks, fixtures
+                classes("io.qorche.cli.QorcheTestHarness*")
+                classes("io.qorche.agent.MockAgentRunner*")
+                // CLI entry point — just wiring, not logic
+                classes("io.qorche.cli.MainKt*")
+                // Terminal formatting — ANSI codes, not business logic
+                classes("io.qorche.cli.Terminal*")
+            }
+        }
         total {
             html {
                 onCheck = false
