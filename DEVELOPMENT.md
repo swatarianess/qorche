@@ -231,9 +231,50 @@ We follow semver and are currently in `0.x` (pre-stable). The version will stay 
 
 Other commit types (`refactor:`, `test:`, `docs:`, `chore:`, `ci:`) do **not** trigger releases.
 
+### Dev builds (bleeding edge)
+
+Pushes to `develop` trigger the **Dev Artifacts** workflow (`.github/workflows/dev-artifacts.yml`), which:
+
+1. Runs `scripts/version_calc.py --stamp` to compute a dev version like `v0.2.0-dev.5`
+2. Builds native binaries (Linux + Windows)
+3. Publishes them to a rolling **dev-latest** GitHub pre-release
+
+The dev version stamp is calculated by:
+- Reading the latest stable tag from `main` (e.g., `v0.1.0`)
+- Parsing all commits since that tag using conventional commit format
+- Computing the expected next version (e.g., `v0.2.0` if there are `feat:` commits)
+- Appending `-dev.{commit-count}` (e.g., `v0.2.0-dev.5` = 5 commits toward 0.2.0)
+
+This gives users a clear picture: "this build is 5 commits toward what will become 0.2.0 on main."
+
+### PR preflight checks
+
+The **PR Preflight** workflow (`.github/workflows/pr-preflight.yml`) runs on PRs to `main` and `develop`:
+
+- Calculates the expected version impact of the PR
+- Comments on the PR with the version summary
+- Warns if a breaking change would trigger a major bump (e.g., `v0.x` → `v1.0.0`)
+- Warns if no releasable commits are present (merge won't trigger a release)
+
+### Version calculation script
+
+`scripts/version_calc.py` is the single source of truth for version calculation outside of semantic-release. It has 48 unit tests in `scripts/test_version_calc.py` covering all edge cases. Run them with:
+
+```bash
+cd scripts && python -m unittest test_version_calc -v
+```
+
+Modes:
+- `--stamp`: print dev version stamp (e.g., `v0.2.0-dev.5`)
+- `--preflight`: PR check with warnings for unexpected bumps
+- `--dry-run`: show what the next release version would be
+- `--current`: show the current version from the latest tag
+
 ### Important rules
 
-- Do **not** add `develop` as a release branch in `.releaserc.json` — this previously caused an erroneous `v1.0.0-beta.1` prerelease because semantic-release treated `feat:` commits on develop as triggering a version bump
+- Do **not** add `develop` as a release branch in `.releaserc.json` — this previously caused an erroneous `v1.0.0-beta.1` prerelease because semantic-release treated `feat:` commits on develop as triggering a version bump independently from main
 - Do **not** use `BREAKING CHANGE` in commit footers unless you genuinely intend a major version bump
 - The release workflow (`.github/workflows/release.yml`) only runs on pushes to `main`
 - Tags follow the format `v${version}` (e.g., `v0.2.0`)
+- When merging `develop` → `main`, use a **regular merge** (not squash) so semantic-release sees all individual commit messages
+- When merging feature → `develop`, squash is fine since the dev stamping script handles granularity
