@@ -97,6 +97,8 @@ kover {
     }
 }
 
+val publishableModules = setOf("core", "agent")
+
 subprojects {
     apply(plugin = "org.jetbrains.kotlin.jvm")
     apply(plugin = "org.jetbrains.kotlin.plugin.serialization")
@@ -105,6 +107,43 @@ subprojects {
 
     if (name != "native") {
         apply(plugin = "org.jetbrains.kotlinx.kover")
+    }
+
+    if (name in publishableModules) {
+        apply(plugin = "maven-publish")
+
+        configure<PublishingExtension> {
+            publications {
+                create<MavenPublication>("gpr") {
+                    from(components.getByName("java"))
+                    groupId = "io.qorche"
+                    artifactId = project.name
+                    version = project.version.toString()
+
+                    pom {
+                        name.set("Qorche ${project.name}")
+                        description.set("Deterministic orchestrator for concurrent filesystem mutations")
+                        url.set("https://github.com/swatarianess/qorche")
+                        licenses {
+                            license {
+                                name.set("Apache-2.0")
+                                url.set("https://www.apache.org/licenses/LICENSE-2.0")
+                            }
+                        }
+                    }
+                }
+            }
+            repositories {
+                maven {
+                    name = "GitHubPackages"
+                    url = uri("https://maven.pkg.github.com/swatarianess/qorche")
+                    credentials {
+                        username = System.getenv("GITHUB_ACTOR") ?: ""
+                        password = System.getenv("GITHUB_TOKEN") ?: ""
+                    }
+                }
+            }
+        }
     }
 
     val moduleDoc = file("Module.md")
