@@ -1,0 +1,8 @@
+project: test
+runners:
+  shell:
+    type: shell
+tasks:
+  - id: task1
+    instruction: do thing
+    runner: shell

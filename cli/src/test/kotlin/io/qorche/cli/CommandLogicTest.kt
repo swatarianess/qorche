@@ -1,7 +1,11 @@
 package io.qorche.cli
 
+import io.qorche.core.AgentResult
+import io.qorche.core.AgentRunner
 import io.qorche.core.ExitCode
+import io.qorche.core.HashAlgorithm
 import io.qorche.core.Orchestrator
+import io.qorche.core.RunnerConfig
 import io.qorche.core.Snapshot
 import io.qorche.core.SnapshotDiff
 import io.qorche.core.TaskStatus
@@ -12,11 +16,13 @@ import io.qorche.core.WALEntry
 import kotlinx.datetime.Clock
 import org.junit.jupiter.api.Tag
 import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -537,5 +543,329 @@ class CommandLogicTest {
         )
         val lines = formatGraphTextSummary(result, 100)
         assertTrue(lines.any { it.contains("Conflicts: 1") }, "Should show conflicts: $lines")
+    }
+
+    // --- Utility functions ---
+
+    @Test
+    fun `formatElapsed returns ms for short durations`() {
+        assertEquals("500ms", formatElapsed(500))
+        assertEquals("0ms", formatElapsed(0))
+    }
+
+    @Test
+    fun `formatElapsed returns seconds for long durations`() {
+        assertEquals("1.0s", formatElapsed(1000))
+        assertEquals("1.5s", formatElapsed(1500))
+    }
+
+    @Test
+    fun `parseHashAlgorithm maps known algorithms`() {
+        assertEquals(HashAlgorithm.CRC32C, parseHashAlgorithm("crc32c"))
+        assertEquals(HashAlgorithm.CRC32C, parseHashAlgorithm("crc32"))
+        assertEquals(HashAlgorithm.SHA256, parseHashAlgorithm("sha256"))
+        assertEquals(HashAlgorithm.SHA256, parseHashAlgorithm("sha-256"))
+        assertEquals(HashAlgorithm.SHA1, parseHashAlgorithm(null))
+        assertEquals(HashAlgorithm.SHA1, parseHashAlgorithm("sha1"))
+    }
+
+    @Test
+    fun `isYamlFile detects yaml extensions`() {
+        assertTrue(isYamlFile("tasks.yaml"))
+        assertTrue(isYamlFile("tasks.yml"))
+        assertTrue(!isYamlFile("Run linter"))
+        assertTrue(!isYamlFile("main.kt"))
+    }
+
+    @Test
+    fun `cliVersion returns non-blank string`() {
+        val version = cliVersion()
+        assertTrue(version.isNotBlank())
+    }
+
+    // --- formatSingleTaskText ---
+
+    @Test
+    fun `formatSingleTaskText shows changes when present`() {
+        val diff = SnapshotDiff(
+            added = setOf("src/new.kt"),
+            modified = setOf("src/main.kt"),
+            deleted = emptySet(),
+            beforeId = "before",
+            afterId = "after"
+        )
+        val result = Orchestrator.RunResult(
+            agentResult = AgentResult(exitCode = 0),
+            diff = diff,
+            beforeSnapshot = makeSnapshot("before"),
+            afterSnapshot = makeSnapshot("after")
+        )
+
+        val lines = formatSingleTaskText(result, 250)
+        assertTrue(lines.any { it.contains("Changes:") }, "Should show changes: $lines")
+        assertTrue(lines.any { it.contains("+ src/new.kt") }, "Should show added: $lines")
+        assertTrue(lines.any { it.contains("~ src/main.kt") }, "Should show modified: $lines")
+        assertTrue(lines.any { it.contains("250ms") }, "Should show elapsed: $lines")
+    }
+
+    @Test
+    fun `formatSingleTaskText shows no changes message`() {
+        val diff = SnapshotDiff(added = emptySet(), modified = emptySet(), deleted = emptySet(), beforeId = "b", afterId = "a")
+        val result = Orchestrator.RunResult(
+            agentResult = AgentResult(exitCode = 0),
+            diff = diff,
+            beforeSnapshot = makeSnapshot("before"),
+            afterSnapshot = makeSnapshot("after")
+        )
+
+        val lines = formatSingleTaskText(result, 100)
+        assertTrue(lines.any { it.contains("No file changes") }, "Should show no changes: $lines")
+    }
+
+    @Test
+    fun `buildSingleTaskGraphResult wraps successful result`() {
+        val diff = SnapshotDiff(added = emptySet(), modified = emptySet(), deleted = emptySet(), beforeId = "b", afterId = "a")
+        val runResult = Orchestrator.RunResult(
+            agentResult = AgentResult(exitCode = 0),
+            diff = diff,
+            beforeSnapshot = makeSnapshot("b"),
+            afterSnapshot = makeSnapshot("a")
+        )
+
+        val graph = buildSingleTaskGraphResult(runResult)
+        assertTrue(graph.success)
+        assertEquals(1, graph.completedTasks)
+        assertEquals(0, graph.failedTasks)
+        assertEquals("cli-run", graph.project)
+    }
+
+    @Test
+    fun `buildSingleTaskGraphResult wraps failed result`() {
+        val diff = SnapshotDiff(added = emptySet(), modified = emptySet(), deleted = emptySet(), beforeId = "b", afterId = "a")
+        val runResult = Orchestrator.RunResult(
+            agentResult = AgentResult(exitCode = 1),
+            diff = diff,
+            beforeSnapshot = makeSnapshot("b"),
+            afterSnapshot = makeSnapshot("a")
+        )
+
+        val graph = buildSingleTaskGraphResult(runResult)
+        assertTrue(!graph.success)
+        assertEquals(0, graph.completedTasks)
+        assertEquals(1, graph.failedTasks)
+    }
+
+    // --- prepareGraphRun ---
+
+    @Test
+    fun `prepareGraphRun returns Ready for valid YAML`() {
+        val fixture = fixtureFile("simple-task.yaml")
+        val mockRunner = io.qorche.agent.MockAgentRunner()
+
+        val result = prepareGraphRun(
+            filePath = fixture,
+            buildRunners = { emptyMap() },
+            fallbackRunner = { mockRunner }
+        )
+
+        assertIs<GraphRunSetup.Ready>(result)
+        assertEquals("test", result.project.project)
+        assertEquals(mockRunner, result.defaultRunner)
+    }
+
+    @Test
+    fun `prepareGraphRun returns Failed for invalid YAML`() {
+        val fixture = fixtureFile("invalid.yaml")
+
+        val result = prepareGraphRun(
+            filePath = fixture,
+            buildRunners = { emptyMap() },
+            fallbackRunner = { io.qorche.agent.MockAgentRunner() }
+        )
+
+        assertIs<GraphRunSetup.Failed>(result)
+        assertEquals(ExitCode.CONFIG_ERROR, result.exitCode)
+    }
+
+    @Test
+    fun `prepareGraphRun returns Failed when runner build throws`() {
+        val fixture = fixtureFile("simple-task.yaml")
+
+        val result = prepareGraphRun(
+            filePath = fixture,
+            buildRunners = { throw IllegalArgumentException("bad runner") },
+            fallbackRunner = { io.qorche.agent.MockAgentRunner() }
+        )
+
+        assertIs<GraphRunSetup.Failed>(result)
+        assertTrue(result.message.contains("bad runner"))
+    }
+
+    @Test
+    fun `prepareGraphRun returns Failed for missing default runner`() {
+        val fixture = fixtureFile("missing-default-runner.yaml")
+        val mockRunner = io.qorche.agent.MockAgentRunner()
+
+        val result = prepareGraphRun(
+            filePath = fixture,
+            buildRunners = { configs ->
+                configs.mapValues { mockRunner as AgentRunner }
+            },
+            fallbackRunner = { mockRunner }
+        )
+
+        assertIs<GraphRunSetup.Failed>(result)
+        assertTrue(result.message.contains("missing"), "Should mention missing runner: ${result.message}")
+    }
+
+    @Test
+    fun `prepareGraphRun wires named runners from config`() {
+        val fixture = fixtureFile("with-runners.yaml")
+        val shellRunner = io.qorche.agent.MockAgentRunner()
+
+        val result = prepareGraphRun(
+            filePath = fixture,
+            buildRunners = { configs ->
+                configs.mapValues { shellRunner as AgentRunner }
+            },
+            fallbackRunner = { io.qorche.agent.MockAgentRunner() }
+        )
+
+        assertIs<GraphRunSetup.Ready>(result)
+        assertTrue(result.runners.containsKey("shell"))
+    }
+
+    // --- formatHistory ---
+
+    @Test
+    fun `formatHistory with no limit shows all`() {
+        val snapshots = listOf(
+            makeSnapshot("snap-1", description = "before task-1"),
+            makeSnapshot("snap-2", description = "after task-1")
+        )
+
+        val output = formatHistory(snapshots, null)
+        assertEquals(2, output.lines.size)
+        assertEquals(0, output.truncatedCount)
+        assertEquals("snap-1".take(8), output.lines[0].idPrefix)
+    }
+
+    @Test
+    fun `formatHistory with limit truncates`() {
+        val snapshots = listOf(
+            makeSnapshot("snapshot-1"),
+            makeSnapshot("snapshot-2"),
+            makeSnapshot("snapshot-3")
+        )
+
+        val output = formatHistory(snapshots, 2)
+        assertEquals(2, output.lines.size)
+        assertEquals(1, output.truncatedCount)
+    }
+
+    @Test
+    fun `formatHistory empty list`() {
+        val output = formatHistory(emptyList(), null)
+        assertTrue(output.lines.isEmpty())
+        assertEquals(0, output.truncatedCount)
+    }
+
+    // --- resolveSnapshotIds ---
+
+    @Test
+    fun `resolveSnapshotIds with explicit ids`() {
+        val snapshots = listOf(
+            makeSnapshot("abc12345-full-id"),
+            makeSnapshot("def67890-full-id")
+        )
+
+        val result = resolveSnapshotIds("abc12345", "def67890", snapshots)
+        assertIs<DiffResolution.Resolved>(result)
+        assertEquals("abc12345-full-id", result.fullId1)
+        assertEquals("def67890-full-id", result.fullId2)
+    }
+
+    @Test
+    fun `resolveSnapshotIds with null id2 uses parent`() {
+        val snapshots = listOf(
+            makeSnapshot("child-id", parentId = "parent-full-id"),
+            makeSnapshot("parent-full-id")
+        )
+
+        val result = resolveSnapshotIds("child", null, snapshots)
+        assertIs<DiffResolution.Resolved>(result)
+        assertEquals("child-id", result.fullId1)
+        assertEquals("parent-full-id", result.fullId2)
+    }
+
+    @Test
+    fun `resolveSnapshotIds returns NoComparison when no parent`() {
+        val snapshots = listOf(makeSnapshot("orphan-id"))
+
+        val result = resolveSnapshotIds("orphan", null, snapshots)
+        assertIs<DiffResolution.NoComparison>(result)
+    }
+
+    @Test
+    fun `resolveSnapshotIds returns NoComparison when id1 prefix not found`() {
+        val snapshots = listOf(makeSnapshot("abc12345-full-id"))
+
+        val result = resolveSnapshotIds("zzz-missing", "abc12345", snapshots)
+        assertIs<DiffResolution.NoComparison>(result)
+        assertTrue(result.message.contains("zzz-missing"))
+    }
+
+    @Test
+    fun `resolveSnapshotIds returns NoComparison when id2 prefix not found`() {
+        val snapshots = listOf(makeSnapshot("abc12345-full-id"))
+
+        val result = resolveSnapshotIds("abc12345", "zzz-missing", snapshots)
+        assertIs<DiffResolution.NoComparison>(result)
+        assertTrue(result.message.contains("zzz-missing"))
+    }
+
+    // --- loadTaskGraph with fixtures ---
+
+    @Test
+    fun `loadTaskGraph with fixture file`() {
+        val result = loadTaskGraph(fixtureFile("simple-task.yaml"))
+        assertIs<TaskGraphLoadResult.Success>(result)
+        assertEquals("test", result.project.project)
+    }
+
+    @Test
+    fun `loadTaskGraph with parallel fixture`() {
+        val result = loadTaskGraph(fixtureFile("parallel-with-join.yaml"))
+        assertIs<TaskGraphLoadResult.Success>(result)
+        assertEquals(3, result.project.tasks.size)
+        val groups = result.graph.parallelGroups()
+        assertTrue(groups.any { it.size == 2 }, "Should have parallel group: $groups")
+    }
+
+    @Test
+    fun `loadVerifyConfig with fixture`() {
+        val result = loadVerifyConfig(fixtureFile("with-verify.yaml"))
+        assertIs<VerifyLoadResult.Success>(result)
+        assertEquals("echo ok", result.config.command)
+    }
+
+    // --- Test helpers ---
+
+    private fun makeSnapshot(
+        id: String = "test-snap",
+        description: String = "test",
+        parentId: String? = null
+    ): Snapshot = Snapshot(
+        id = id,
+        timestamp = Clock.System.now(),
+        description = description,
+        fileHashes = mapOf("src/main.kt" to "abc123"),
+        parentId = parentId
+    )
+
+    private fun fixtureFile(name: String): Path {
+        val url = javaClass.getResource("/fixtures/$name")
+        assertNotNull(url, "Fixture file not found: $name")
+        return Path.of(url.toURI())
     }
 }

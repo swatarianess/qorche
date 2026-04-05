@@ -1,0 +1,6 @@
+project: test
+verify:
+  command: echo ok
+tasks:
+  - id: task1
+    instruction: do thing

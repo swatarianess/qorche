@@ -13,23 +13,14 @@ import com.github.ajalt.clikt.parameters.types.int
 import io.qorche.agent.ClaudeCodeAdapter
 import io.qorche.agent.RunnerRegistry
 import io.qorche.agent.ShellRunner
+import io.qorche.core.AgentRunner
 import io.qorche.core.ExitCode
-import io.qorche.core.HashAlgorithm
 import io.qorche.core.Orchestrator
+import io.qorche.core.RunnerConfig
 import io.qorche.core.SnapshotCreator
 import io.qorche.core.TaskStatus
-import io.qorche.core.WALEntry
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Path
-
-internal fun formatElapsed(ms: Long): String = when {
-    ms >= 1000 -> "%.1fs".format(ms / 1000.0)
-    else -> "${ms}ms"
-}
-
-private fun cliVersion(): String =
-    object {}.javaClass.getResourceAsStream("/io/qorche/cli/version.txt")
-        ?.bufferedReader()?.readText()?.trim() ?: "dev"
 
 class QorcheCommand : CliktCommand(name = "qorche") {
     override fun help(context: com.github.ajalt.clikt.core.Context) = "Orchestrate concurrent filesystem mutations with MVCC conflict detection"
@@ -51,7 +42,15 @@ class QorcheCommand : CliktCommand(name = "qorche") {
     }
 }
 
-class RunCommand : CliktCommand(name = "run") {
+class RunCommand(
+    internal val workDirProvider: () -> Path = { Path.of(System.getProperty("user.dir")) },
+    internal val orchestratorFactory: (Path) -> Orchestrator = ::Orchestrator,
+    internal val singleRunnerFactory: (List<String>) -> AgentRunner = { ClaudeCodeAdapter(extraArgs = it) },
+    internal val graphRunnerBuilder: (Map<String, RunnerConfig>) -> Map<String, AgentRunner> = RunnerRegistry::build,
+    internal val graphFallbackRunner: () -> AgentRunner = {
+        ShellRunner(allowedCommands = setOf("sh", "bash", "cmd", "powershell"))
+    }
+) : CliktCommand(name = "run") {
     override fun help(context: com.github.ajalt.clikt.core.Context) = "Execute a task instruction or YAML task graph"
 
     private val instructionOrFile by argument(help = "Instruction string or path to a YAML task file")
@@ -63,13 +62,9 @@ class RunCommand : CliktCommand(name = "run") {
 
     override fun run() {
         val hashExplicit = hashAlgorithm != null
-        SnapshotCreator.hashAlgorithm = when (hashAlgorithm?.lowercase()) {
-            "crc32c", "crc32" -> HashAlgorithm.CRC32C
-            "sha256", "sha-256" -> HashAlgorithm.SHA256
-            else -> HashAlgorithm.SHA1
-        }
-        val workDir = Path.of(System.getProperty("user.dir"))
-        val orchestrator = Orchestrator(workDir)
+        SnapshotCreator.hashAlgorithm = parseHashAlgorithm(hashAlgorithm)
+        val workDir = workDirProvider()
+        val orchestrator = orchestratorFactory(workDir)
         if (output == "text") {
             orchestrator.onSnapshotProgress = { progress ->
                 if (progress.total >= 1000) {
@@ -90,18 +85,16 @@ class RunCommand : CliktCommand(name = "run") {
             }
         }
 
-        val isYamlFile = instructionOrFile.endsWith(".yaml") || instructionOrFile.endsWith(".yml")
-
-        if (isYamlFile) {
+        if (isYamlFile(instructionOrFile)) {
             runGraphFromFile(workDir, orchestrator, startTime)
         } else {
             val extraArgs = if (skipPermissions) listOf("--dangerously-skip-permissions") else emptyList()
-            val runner = ClaudeCodeAdapter(extraArgs = extraArgs)
+            val runner = singleRunnerFactory(extraArgs)
             runSingleTask(orchestrator, runner, startTime)
         }
     }
 
-    private fun runSingleTask(orchestrator: Orchestrator, runner: ClaudeCodeAdapter, startTime: Long) {
+    private fun runSingleTask(orchestrator: Orchestrator, runner: AgentRunner, startTime: Long) {
         if (output == "text") echo("Starting: $instructionOrFile")
 
         runBlocking {
@@ -123,31 +116,12 @@ class RunCommand : CliktCommand(name = "run") {
             val result = taskResult.getOrThrow()
 
             if (output == "json") {
-                val graphResult = Orchestrator.GraphResult(
-                    project = "cli-run",
-                    taskResults = mapOf("cli-run" to Orchestrator.TaskOutcome(
-                        taskId = "cli-run",
-                        status = if (result.agentResult.exitCode == 0) TaskStatus.COMPLETED else TaskStatus.FAILED,
-                        runResult = result
-                    )),
-                    totalTasks = 1,
-                    completedTasks = if (result.agentResult.exitCode == 0) 1 else 0,
-                    failedTasks = if (result.agentResult.exitCode == 0) 0 else 1,
-                    skippedTasks = 0
-                )
+                val graphResult = buildSingleTaskGraphResult(result)
                 echo(graphResult.toJson("cli-run", cliVersion(), elapsed))
             } else {
-                val diff = result.diff
-                echo("")
-                if (diff.totalChanges > 0) {
-                    echo("Changes: ${diff.summary()}")
-                    for (f in diff.added) echo("  + $f")
-                    for (f in diff.modified) echo("  ~ $f")
-                    for (f in diff.deleted) echo("  - $f")
-                } else {
-                    echo("No file changes detected")
+                for (line in formatSingleTaskText(result, elapsed)) {
+                    echo(line)
                 }
-                echo("Completed (exit ${result.agentResult.exitCode}) in ${elapsed}ms")
             }
 
             if (result.agentResult.exitCode != 0) throw ProgramResult(ExitCode.TASK_FAILURE.code)
@@ -160,47 +134,38 @@ class RunCommand : CliktCommand(name = "run") {
         startTime: Long
     ) {
         val filePath = workDir.resolve(instructionOrFile)
-        val (project, graph) = when (val loaded = loadTaskGraph(filePath)) {
-            is TaskGraphLoadResult.Success -> loaded.project to loaded.graph
-            is TaskGraphLoadResult.ParseError -> {
-                echo("Error: ${loaded.message}", err = true)
-                throw ProgramResult(ExitCode.CONFIG_ERROR.code)
+        val setup = prepareGraphRun(filePath, graphRunnerBuilder, graphFallbackRunner)
+
+        when (setup) {
+            is GraphRunSetup.Failed -> {
+                echo("Error: ${setup.message}", err = true)
+                throw ProgramResult(setup.exitCode.code)
             }
+            is GraphRunSetup.Ready -> runGraph(orchestrator, setup, startTime)
         }
+    }
 
-        val runners = try {
-            RunnerRegistry.build(project.runners)
-        } catch (e: IllegalArgumentException) {
-            echo("Error: ${e.message}", err = true)
-            throw ProgramResult(ExitCode.CONFIG_ERROR.code)
-        }
-
-        val defaultRunner: io.qorche.core.AgentRunner = if (project.defaultRunner != null) {
-            runners[project.defaultRunner]
-                ?: run {
-                    echo("Error: default_runner '${project.defaultRunner}' not found in runners", err = true)
-                    throw ProgramResult(ExitCode.CONFIG_ERROR.code)
-                }
-        } else {
-            ShellRunner(allowedCommands = setOf("sh", "bash", "cmd", "powershell"))
-        }
-
+    private fun runGraph(
+        orchestrator: Orchestrator,
+        setup: GraphRunSetup.Ready,
+        startTime: Long
+    ) {
         if (output == "text") {
-            echo("Project: ${project.project}")
-            echo("Tasks: ${project.tasks.size}")
-            if (runners.isNotEmpty()) {
-                echo("Runners: ${runners.keys.joinToString(", ")}")
+            echo("Project: ${setup.project.project}")
+            echo("Tasks: ${setup.project.tasks.size}")
+            if (setup.runners.isNotEmpty()) {
+                echo("Runners: ${setup.runners.keys.joinToString(", ")}")
             }
             echo("")
         }
 
         runBlocking {
             val result = orchestrator.runGraphParallel(
-                project = project.project,
-                graph = graph,
-                runner = defaultRunner,
-                runners = runners,
-                verifyConfig = project.verify,
+                project = setup.project.project,
+                graph = setup.graph,
+                runner = setup.defaultRunner,
+                runners = setup.runners,
+                verifyConfig = setup.project.verify,
                 onTaskStart = { def ->
                     if (output == "text") echo("${Terminal.cyan("[${def.id}]")} Starting: ${def.instruction}")
                 },
@@ -244,7 +209,7 @@ class RunCommand : CliktCommand(name = "run") {
             val elapsed = System.currentTimeMillis() - startTime
 
             if (output == "json") {
-                echo(result.toJson(project.project, cliVersion(), elapsed))
+                echo(result.toJson(setup.project.project, cliVersion(), elapsed))
             } else {
                 for (line in formatGraphTextSummary(result, elapsed)) {
                     echo(line)
@@ -259,14 +224,16 @@ class RunCommand : CliktCommand(name = "run") {
     }
 }
 
-class PlanCommand : CliktCommand(name = "plan") {
+class PlanCommand(
+    internal val workDirProvider: () -> Path = { Path.of(System.getProperty("user.dir")) }
+) : CliktCommand(name = "plan") {
     override fun help(context: com.github.ajalt.clikt.core.Context) = "Preview execution order and parallel groups without running"
 
     private val file by argument(help = "Path to a YAML task file")
     private val output by option("--output", "-o", help = "Output format: text or json").default("text")
 
     override fun run() {
-        val workDir = Path.of(System.getProperty("user.dir"))
+        val workDir = workDirProvider()
         val filePath = workDir.resolve(file)
 
         val (project, graph) = when (val loaded = loadTaskGraph(filePath)) {
@@ -314,7 +281,9 @@ class PlanCommand : CliktCommand(name = "plan") {
     }
 }
 
-class VerifyCommand : CliktCommand(name = "verify") {
+class VerifyCommand(
+    internal val workDirProvider: () -> Path = { Path.of(System.getProperty("user.dir")) }
+) : CliktCommand(name = "verify") {
     override fun help(context: com.github.ajalt.clikt.core.Context) =
         "Run the verification step from a YAML task file against the current working directory"
 
@@ -322,7 +291,7 @@ class VerifyCommand : CliktCommand(name = "verify") {
     private val verbose by option("--verbose", "-v", help = "Show verification output").flag()
 
     override fun run() {
-        val workDir = Path.of(System.getProperty("user.dir"))
+        val workDir = workDirProvider()
         val filePath = workDir.resolve(file)
 
         val config = when (val loaded = loadVerifyConfig(filePath)) {
@@ -364,7 +333,10 @@ class VerifyCommand : CliktCommand(name = "verify") {
     }
 }
 
-class ReplayCommand : CliktCommand(name = "replay") {
+class ReplayCommand(
+    internal val workDirProvider: () -> Path = { Path.of(System.getProperty("user.dir")) },
+    internal val orchestratorFactory: (Path) -> Orchestrator = ::Orchestrator
+) : CliktCommand(name = "replay") {
     override fun help(context: com.github.ajalt.clikt.core.Context) =
         "Replay WAL history and verify snapshot consistency"
 
@@ -372,8 +344,8 @@ class ReplayCommand : CliktCommand(name = "replay") {
     private val checkConsistency by option("--check", help = "Verify current filesystem matches the latest snapshot").flag()
 
     override fun run() {
-        val workDir = Path.of(System.getProperty("user.dir"))
-        val orchestrator = Orchestrator(workDir)
+        val workDir = workDirProvider()
+        val orchestrator = orchestratorFactory(workDir)
 
         val entries = orchestrator.walEntries()
         if (entries.isEmpty()) {
@@ -433,14 +405,17 @@ class ReplayCommand : CliktCommand(name = "replay") {
     }
 }
 
-class HistoryCommand : CliktCommand(name = "history") {
+class HistoryCommand(
+    internal val workDirProvider: () -> Path = { Path.of(System.getProperty("user.dir")) },
+    internal val orchestratorFactory: (Path) -> Orchestrator = ::Orchestrator
+) : CliktCommand(name = "history") {
     override fun help(context: com.github.ajalt.clikt.core.Context) = "List past snapshots with timestamps and file counts"
 
     private val limit by option("--limit", "-n", help = "Maximum number of snapshots to show").int()
 
     override fun run() {
-        val workDir = Path.of(System.getProperty("user.dir"))
-        val orchestrator = Orchestrator(workDir)
+        val workDir = workDirProvider()
+        val orchestrator = orchestratorFactory(workDir)
         val snapshots = orchestrator.history()
 
         if (snapshots.isEmpty()) {
@@ -448,48 +423,48 @@ class HistoryCommand : CliktCommand(name = "history") {
             return
         }
 
-        val shown = if (limit != null) snapshots.take(limit!!) else snapshots
-        for (snap in shown) {
-            echo("${snap.id.take(8)}  ${snap.timestamp}  ${snap.description}  (${snap.fileHashes.size} files)")
+        val historyOutput = formatHistory(snapshots, limit)
+        for (line in historyOutput.lines) {
+            echo("${line.idPrefix}  ${line.timestamp}  ${line.description}  (${line.fileCount} files)")
         }
-        if (limit != null && snapshots.size > limit!!) {
-            echo("... and ${snapshots.size - limit!!} more (use --limit to show more)")
+        if (historyOutput.truncatedCount > 0) {
+            echo("... and ${historyOutput.truncatedCount} more (use --limit to show more)")
         }
     }
 }
 
-class DiffCommand : CliktCommand(name = "diff") {
+class DiffCommand(
+    internal val workDirProvider: () -> Path = { Path.of(System.getProperty("user.dir")) },
+    internal val orchestratorFactory: (Path) -> Orchestrator = ::Orchestrator
+) : CliktCommand(name = "diff") {
     override fun help(context: com.github.ajalt.clikt.core.Context) = "Show file changes between two snapshots"
 
     private val id1 by argument(help = "First snapshot ID (or prefix)")
     private val id2 by argument(help = "Second snapshot ID (or prefix, defaults to parent)").optional()
 
     override fun run() {
-        val workDir = Path.of(System.getProperty("user.dir"))
-        val orchestrator = Orchestrator(workDir)
+        val workDir = workDirProvider()
+        val orchestrator = orchestratorFactory(workDir)
+        val allSnapshots = orchestrator.history()
 
-        val resolvedId2 = id2 ?: run {
-            val snap = orchestrator.history().find { it.id.startsWith(id1) }
-            snap?.parentId ?: run {
-                echo("Cannot determine comparison snapshot. Provide two IDs.", err = true)
+        when (val resolution = resolveSnapshotIds(id1, id2, allSnapshots)) {
+            is DiffResolution.NoComparison -> {
+                echo(resolution.message, err = true)
                 return
             }
+            is DiffResolution.Resolved -> {
+                val diff = orchestrator.diffSnapshots(resolution.fullId1, resolution.fullId2)
+                if (diff == null) {
+                    echo("Could not find one or both snapshots", err = true)
+                    return
+                }
+
+                echo("Diff: ${diff.summary()}")
+                for (f in diff.added.sorted()) echo("  + $f")
+                for (f in diff.modified.sorted()) echo("  ~ $f")
+                for (f in diff.deleted.sorted()) echo("  - $f")
+            }
         }
-
-        val allSnapshots = orchestrator.history()
-        val fullId1 = allSnapshots.find { it.id.startsWith(id1) }?.id ?: id1
-        val fullId2 = allSnapshots.find { it.id.startsWith(resolvedId2) }?.id ?: resolvedId2
-
-        val diff = orchestrator.diffSnapshots(fullId1, fullId2)
-        if (diff == null) {
-            echo("Could not find one or both snapshots", err = true)
-            return
-        }
-
-        echo("Diff: ${diff.summary()}")
-        for (f in diff.added.sorted()) echo("  + $f")
-        for (f in diff.modified.sorted()) echo("  ~ $f")
-        for (f in diff.deleted.sorted()) echo("  - $f")
     }
 }
 

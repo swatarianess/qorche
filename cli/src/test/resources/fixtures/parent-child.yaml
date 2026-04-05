@@ -1,0 +1,7 @@
+project: dep-test
+tasks:
+  - id: root
+    instruction: root task
+  - id: child
+    instruction: child task
+    depends_on: [root]

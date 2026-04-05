@@ -1,0 +1,137 @@
+name: Dev Artifacts
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: dev-artifacts-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  stamp:
+    runs-on: ubuntu-latest
+    outputs:
+      dev_version: ${{ steps.calc.outputs.dev_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Calculate dev version
+        id: calc
+        run: |
+          DEV_VERSION=$(python scripts/version_calc.py --stamp)
+          echo "dev_version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Dev version: $DEV_VERSION"
+
+  build:
+    needs: stamp
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: qorche-linux-amd64
+            binary: cli/build/native/nativeCompile/qorche
+          - os: windows-latest
+            artifact: qorche-windows-amd64.exe
+            binary: cli/build/native/nativeCompile/qorche.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: 21
+          distribution: graalvm-community
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run tests
+        run: ./gradlew test
+
+      - name: Build native image
+        run: ./gradlew :cli:nativeCompile
+
+      - name: Compress with UPX
+        if: matrix.os == 'ubuntu-latest'
+        uses: svenstaro/upx-action@v2
+        with:
+          files: ${{ matrix.binary }}
+          args: --best --lzma
+
+      - name: Verify binary runs
+        shell: bash
+        run: |
+          "${{ matrix.binary }}" version
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-${{ needs.stamp.outputs.dev_version }}
+          path: ${{ matrix.binary }}
+
+  release:
+    needs: [stamp, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: qorche-linux-amd64-${{ needs.stamp.outputs.dev_version }}
+          path: artifacts/
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: qorche-windows-amd64.exe-${{ needs.stamp.outputs.dev_version }}
+          path: artifacts/
+
+      - name: Rename artifacts
+        run: |
+          mv artifacts/qorche artifacts/qorche-linux-amd64 2>/dev/null || true
+          mv artifacts/qorche.exe artifacts/qorche-windows-amd64.exe 2>/dev/null || true
+
+      - name: Create or update dev-latest release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEV_VERSION: ${{ needs.stamp.outputs.dev_version }}
+        run: |
+          # Delete existing dev-latest release if it exists
+          gh release delete dev-latest --yes 2>/dev/null || true
+          git push --delete origin dev-latest 2>/dev/null || true
+
+          # Create new dev-latest pre-release
+          gh release create dev-latest \
+            --title "Dev Build: $DEV_VERSION" \
+            --notes "$(cat <<EOF
+          ## Development Build
+
+          **Version:** \`$DEV_VERSION\`
+          **Branch:** develop
+          **Commit:** $(git rev-parse --short HEAD)
+
+          This is an automated development build from the \`develop\` branch.
+          It may be unstable — use tagged releases from \`main\` for production.
+
+          ### What's included
+          All commits since the last stable release that haven't been promoted to \`main\` yet.
+          EOF
+          )" \
+            --prerelease \
+            artifacts/qorche-linux-amd64 \
+            artifacts/qorche-windows-amd64.exe

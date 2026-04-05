@@ -535,7 +535,7 @@ class CommandParseTest {
         val result = withWorkDir(root.toString()) {
             DiffCommand().test(listOf("abc", "def"))
         }
-        assertTrue(result.output.contains("Could not find"), "Should show not found: ${result.output}")
+        assertTrue(result.output.contains("not found"), "Should show not found: ${result.output}")
     }
 
     // --- VersionCommand ---

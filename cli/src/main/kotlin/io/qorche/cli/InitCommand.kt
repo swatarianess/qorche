@@ -10,13 +10,15 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 
-class InitCommand : CliktCommand(name = "init") {
+class InitCommand(
+    internal val workDirProvider: () -> Path = { Path.of(System.getProperty("user.dir")) }
+) : CliktCommand(name = "init") {
     override fun help(context: com.github.ajalt.clikt.core.Context) = "Initialize a new Qorche project in the current directory"
 
     private val force by option("--force", help = "Overwrite existing tasks.yaml").flag()
 
     override fun run() {
-        val workDir = Path.of(System.getProperty("user.dir"))
+        val workDir = workDirProvider()
         val projectType = detectProjectType(workDir)
 
         val qorcheDir = workDir.resolve(".qorche")
@@ -69,12 +71,12 @@ class InitCommand : CliktCommand(name = "init") {
 enum class ProjectType(val label: String) {
     GRADLE_KOTLIN("Kotlin/Gradle"),
     GRADLE_JAVA("Java/Gradle"),
-    MAVEN("Java/Maven"),
-    NODE("JavaScript/TypeScript"),
+    MAVEN("Maven"),
+    NODE("Node.js"),
     PYTHON("Python"),
     RUST("Rust"),
     GO("Go"),
-    GENERIC("generic")
+    GENERIC("Generic")
 }
 
 internal fun detectProjectType(workDir: Path): ProjectType = when {
@@ -82,8 +84,8 @@ internal fun detectProjectType(workDir: Path): ProjectType = when {
     Files.exists(workDir.resolve("build.gradle")) -> ProjectType.GRADLE_JAVA
     Files.exists(workDir.resolve("pom.xml")) -> ProjectType.MAVEN
     Files.exists(workDir.resolve("package.json")) -> ProjectType.NODE
-    Files.exists(workDir.resolve("pyproject.toml")) -> ProjectType.PYTHON
-    Files.exists(workDir.resolve("requirements.txt")) -> ProjectType.PYTHON
+    Files.exists(workDir.resolve("pyproject.toml")) ||
+        Files.exists(workDir.resolve("setup.py")) -> ProjectType.PYTHON
     Files.exists(workDir.resolve("Cargo.toml")) -> ProjectType.RUST
     Files.exists(workDir.resolve("go.mod")) -> ProjectType.GO
     else -> ProjectType.GENERIC

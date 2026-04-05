@@ -1,0 +1,9 @@
+project: parallel-test
+tasks:
+  - id: a
+    instruction: task a
+  - id: b
+    instruction: task b
+  - id: c
+    instruction: task c
+    depends_on: [a, b]

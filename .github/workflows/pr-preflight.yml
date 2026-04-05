@@ -1,0 +1,102 @@
+name: PR Preflight
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run version preflight
+        id: preflight
+        run: |
+          set +e
+          OUTPUT=$(python scripts/version_calc.py --preflight 2>&1)
+          EXIT_CODE=$?
+          echo "$OUTPUT"
+          echo "output<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$OUTPUT" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Run dry-run for full details
+        id: dryrun
+        run: |
+          OUTPUT=$(python scripts/version_calc.py --dry-run 2>&1)
+          echo "$OUTPUT"
+          echo "output<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$OUTPUT" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const preflightOutput = ${{ toJSON(steps.preflight.outputs.output) }};
+            const dryrunOutput = ${{ toJSON(steps.dryrun.outputs.output) }};
+            const exitCode = ${{ toJSON(steps.preflight.outputs.exit_code) }};
+            const hasWarnings = exitCode !== '0';
+            const icon = hasWarnings ? '⚠️' : '✅';
+            const status = hasWarnings ? 'Warnings detected' : 'All checks passed';
+
+            const body = `## ${icon} Version Preflight: ${status}
+
+            \`\`\`
+            ${preflightOutput}
+            \`\`\`
+
+            <details>
+            <summary>Dry-run details</summary>
+
+            \`\`\`
+            ${dryrunOutput}
+            \`\`\`
+            </details>
+
+            ---
+            *Automated by [version_calc.py](../blob/develop/scripts/version_calc.py)*`;
+
+            // Find existing comment to update
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Version Preflight')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Warn on breaking change to main
+        if: github.base_ref == 'main' && steps.preflight.outputs.exit_code != '0'
+        run: |
+          echo "::warning::Version preflight has warnings — review the PR comment."
+          echo "This is a warning, not a blocker. Review the version impact before merging."

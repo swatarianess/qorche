@@ -3,10 +3,8 @@
   <ManuallySuppressedIssues/>
   <CurrentIssues>
     <ID>CyclomaticComplexMethod:Commands.kt$ReplayCommand$override fun run()</ID>
-    <ID>CyclomaticComplexMethod:Commands.kt$RunCommand$private fun runGraphFromFile( workDir: Path, orchestrator: Orchestrator, startTime: Long )</ID>
-    <ID>LongMethod:Commands.kt$ReplayCommand$override fun run()</ID>
-    <ID>LongMethod:Commands.kt$RunCommand$private fun runGraphFromFile( workDir: Path, orchestrator: Orchestrator, startTime: Long )</ID>
-    <ID>LongMethod:InitCommand.kt$internal fun generateTasksYaml(type: ProjectType, workDir: Path): String</ID>
+    <ID>LargeClass:CommandLogicTest.kt$CommandLogicTest</ID>
+    <ID>LongMethod:Commands.kt$RunCommand$private fun runGraph( orchestrator: Orchestrator, setup: GraphRunSetup.Ready, startTime: Long )</ID>
     <ID>LoopWithTooManyJumpStatements:JsonOutput.kt$for</ID>
     <ID>MaxLineLength:Commands.kt$QorcheCommand$override fun help(context: com.github.ajalt.clikt.core.Context)</ID>
     <ID>MaxLineLength:Commands.kt$RunCommand$"hashing" -> echo("\r${Terminal.dim("Hashing ${progress.current}/${progress.total} files...")}", trailingNewline = false)</ID>
@@ -16,7 +14,6 @@
     <ID>MaxLineLength:Commands.kt$RunCommand$echo("${Terminal.red("[VERIFY]")} Group ${verifyResult.groupIndex} FAILED (exit ${verifyResult.exitCode}) ${Terminal.dim("(${formatElapsed(verifyResult.elapsedMs)})")}")</ID>
     <ID>MaxLineLength:Commands.kt$RunCommand$private val hashAlgorithm by option("--hash", help = "Hash algorithm: crc32c (fastest), sha1 (default, same as Git), sha256 (cryptographic)")</ID>
     <ID>MaxLineLength:Commands.kt$RunCommand$private val preflightThreshold by option("--preflight-threshold", help = "File count above which a faster hash algorithm is suggested (default: ${SnapshotCreator.DEFAULT_LARGE_REPO_THRESHOLD})").int()</ID>
-    <ID>ThrowsCount:Commands.kt$RunCommand$private fun runGraphFromFile( workDir: Path, orchestrator: Orchestrator, startTime: Long )</ID>
-    <ID>TooGenericExceptionCaught:Commands.kt$VerifyCommand$e: Exception</ID>
+    <ID>TooManyFunctions:CommandLogic.kt$io.qorche.cli.CommandLogic.kt</ID>
   </CurrentIssues>
 </SmellBaseline>

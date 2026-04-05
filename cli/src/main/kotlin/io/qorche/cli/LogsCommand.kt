@@ -10,13 +10,15 @@ import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import kotlin.io.path.readText
 
-class LogsCommand : CliktCommand(name = "logs") {
+class LogsCommand(
+    internal val workDirProvider: () -> Path = { Path.of(System.getProperty("user.dir")) }
+) : CliktCommand(name = "logs") {
     override fun help(context: com.github.ajalt.clikt.core.Context) = "List task logs or view a specific task's output"
 
     private val taskId by argument(help = "Task ID to view log for (omit to list all)").optional()
 
     override fun run() {
-        val workDir = Path.of(System.getProperty("user.dir"))
+        val workDir = workDirProvider()
         val logsDir = workDir.resolve(".qorche/logs")
 
         if (!logsDir.exists()) {
