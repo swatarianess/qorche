@@ -85,7 +85,8 @@ internal fun detectProjectType(workDir: Path): ProjectType = when {
     Files.exists(workDir.resolve("pom.xml")) -> ProjectType.MAVEN
     Files.exists(workDir.resolve("package.json")) -> ProjectType.NODE
     Files.exists(workDir.resolve("pyproject.toml")) ||
-        Files.exists(workDir.resolve("setup.py")) -> ProjectType.PYTHON
+        Files.exists(workDir.resolve("setup.py")) ||
+        Files.exists(workDir.resolve("requirements.txt")) -> ProjectType.PYTHON
     Files.exists(workDir.resolve("Cargo.toml")) -> ProjectType.RUST
     Files.exists(workDir.resolve("go.mod")) -> ProjectType.GO
     else -> ProjectType.GENERIC

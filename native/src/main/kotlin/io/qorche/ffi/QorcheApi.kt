@@ -4,6 +4,7 @@ import io.qorche.agent.RunnerRegistry
 import io.qorche.core.Orchestrator
 import io.qorche.core.SnapshotCreator
 import io.qorche.core.TaskYamlParser
+import io.qorche.core.WALEntry
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -23,6 +24,13 @@ object QorcheApi {
     fun version(): String =
         javaClass.getResourceAsStream("/io/qorche/ffi/version.txt")
             ?.bufferedReader()?.readText()?.trim() ?: "dev"
+
+    fun parseYaml(yamlPath: String): String = try {
+        val project = TaskYamlParser.parseFile(Path.of(yamlPath))
+        Json.encodeToString(project)
+    } catch (e: Exception) {
+        errorJson(e.message ?: "Unknown error")
+    }
 
     fun validateYaml(yamlPath: String): String = try {
         val (project, _) = TaskYamlParser.parseFileToGraph(Path.of(yamlPath))
@@ -100,6 +108,52 @@ object QorcheApi {
     } catch (e: Exception) {
         errorJson(e.message ?: "Unknown error")
     }
+
+    fun listSnapshots(workDirPath: String): String = try {
+        val orchestrator = Orchestrator(Path.of(workDirPath))
+        Json.encodeToString(orchestrator.history())
+    } catch (e: Exception) {
+        errorJson(e.message ?: "Unknown error")
+    }
+
+    fun walEntries(workDirPath: String): String = try {
+        val orchestrator = Orchestrator(Path.of(workDirPath))
+        Json.encodeToString<List<WALEntry>>(orchestrator.walEntries())
+    } catch (e: Exception) {
+        errorJson(e.message ?: "Unknown error")
+    }
+
+    fun schema(): String = try {
+        javaClass.getResourceAsStream("/io/qorche/ffi/tasks.schema.json")
+            ?.bufferedReader()?.readText()
+            ?: errorJson("Schema resource not found")
+    } catch (e: Exception) {
+        errorJson(e.message ?: "Unknown error")
+    }
+
+    fun clean(workDirPath: String, optionsJson: String): String = try {
+        val orchestrator = Orchestrator(Path.of(workDirPath))
+        val options = Json.decodeFromString<CleanOptions>(optionsJson)
+        val result = orchestrator.clean(
+            snapshots = options.snapshots,
+            logs = options.logs,
+            wal = options.wal,
+            fileIndexCache = options.fileIndexCache,
+            keepLastSnapshots = options.keepLastSnapshots
+        )
+        Json.encodeToString(result)
+    } catch (e: Exception) {
+        errorJson(e.message ?: "Unknown error")
+    }
+
+    @kotlinx.serialization.Serializable
+    internal data class CleanOptions(
+        val snapshots: Boolean = true,
+        val logs: Boolean = true,
+        val wal: Boolean = true,
+        val fileIndexCache: Boolean = true,
+        val keepLastSnapshots: Int = 0
+    )
 
     private fun errorJson(message: String): String =
         buildJsonObject { put("error", message) }.toString()
