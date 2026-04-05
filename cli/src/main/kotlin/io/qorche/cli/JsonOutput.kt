@@ -4,6 +4,7 @@ import io.qorche.core.ConflictDetector
 import io.qorche.core.Orchestrator
 import io.qorche.core.TaskGraph
 import io.qorche.core.TaskDefinition
+import io.qorche.core.VerifyResult
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -20,6 +21,7 @@ data class RunOutput(
     val tasks: List<TaskOutput>,
     val conflicts: List<ConflictOutput>,
     val scopeViolations: List<ScopeViolationOutput>,
+    val verifyResults: List<VerifyResultOutput> = emptyList(),
     val retriedTasks: Int,
     val groups: List<GroupOutput>
 )
@@ -46,6 +48,17 @@ data class ConflictOutput(
 data class ScopeViolationOutput(
     val undeclaredFiles: List<String>,
     val suspectTaskIds: List<String>
+)
+
+@Serializable
+data class VerifyResultOutput(
+    val success: Boolean,
+    @SerialName("exit_code")
+    val exitCode: Int,
+    @SerialName("elapsed_ms")
+    val elapsedMs: Long,
+    @SerialName("group_index")
+    val groupIndex: Int
 )
 
 @Serializable
@@ -103,6 +116,14 @@ fun Orchestrator.GraphResult.toJson(project: String, version: String, wallTimeMs
             ScopeViolationOutput(
                 undeclaredFiles = violation.undeclaredFiles.sorted(),
                 suspectTaskIds = violation.suspectTaskIds
+            )
+        },
+        verifyResults = verifyResults.map { v ->
+            VerifyResultOutput(
+                success = v.success,
+                exitCode = v.exitCode,
+                elapsedMs = v.elapsedMs,
+                groupIndex = v.groupIndex
             )
         },
         retriedTasks = retriedTasks,

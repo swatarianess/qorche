@@ -27,6 +27,14 @@ object TaskYamlParser {
         )
     )
 
+    /** Encoder that omits fields set to their default values, producing cleaner YAML output. */
+    private val compactYaml = Yaml(
+        configuration = YamlConfiguration(
+            strictMode = false,
+            encodeDefaults = false
+        )
+    )
+
     /** Parses a YAML string into a [TaskProject], validating runner references. */
     fun parse(content: String): TaskProject {
         require(content.isNotBlank()) { "Task definition file is empty" }
@@ -79,6 +87,10 @@ object TaskYamlParser {
         require(project.tasks.isNotEmpty()) { "Task definition contains no tasks" }
         return TaskGraph(project.tasks)
     }
+
+    /** Encodes a [TaskProject] to a YAML string, omitting fields set to their defaults. */
+    fun encode(project: TaskProject): String =
+        compactYaml.encodeToString(TaskProject.serializer(), project)
 
     /** Reads a YAML file and builds a validated [TaskGraph] with cycle detection. */
     fun parseFileToGraph(path: Path): Pair<TaskProject, TaskGraph> {

@@ -36,6 +36,10 @@
         }
       ]
     },
+    "verify": {
+      "$ref": "#/$defs/verify_config",
+      "description": "Optional verification step run after each parallel group completes. Use this to run tests, type checkers, or linters to validate merged state."
+    },
     "tasks": {
       "type": "array",
       "description": "Ordered list of task definitions forming a DAG. Tasks execute in dependency order, with independent tasks running in parallel.",
@@ -46,6 +50,31 @@
     }
   },
   "$defs": {
+    "verify_config": {
+      "type": "object",
+      "description": "Configuration for a post-group verification step (test suite, type checker, linter).",
+      "required": ["command"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Shell command to execute for verification.",
+          "examples": ["./gradlew test", "npm test", "pytest", "cargo test"]
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Maximum time in seconds before the verification process is killed.",
+          "default": 300,
+          "minimum": 1
+        },
+        "on_failure": {
+          "type": "string",
+          "description": "What to do when verification fails. 'fail' aborts the pipeline, 'warn' logs the failure but continues.",
+          "enum": ["fail", "warn"],
+          "default": "fail"
+        }
+      }
+    },
     "runner_config": {
       "type": "object",
       "description": "Configuration for a named runner.",

@@ -97,6 +97,18 @@ sealed class WALEntry {
         val conflictingFiles: List<String>,
         val baseSnapshotId: String
     ) : WALEntry()
+
+    /** Logged when a verification step runs after a parallel group completes. */
+    @Serializable
+    @SerialName("verify_completed")
+    data class VerifyCompleted(
+        override val timestamp: Instant = Clock.System.now(),
+        override val taskId: String,
+        val success: Boolean,
+        val exitCode: Int,
+        val command: String,
+        val groupIndex: Int
+    ) : WALEntry()
 }
 
 /**
